@@ -1,0 +1,164 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mapachessl:latest
+    container_name: mapachessl-app
+    restart: unless-stopped
+    environment:
+      - APP_NAME=MapacheSSL
+      - APP_ENV=production
+      - APP_KEY=${APP_KEY}
+      - APP_DEBUG=false
+      - APP_URL=${APP_URL:-https://example.com}
+      - APP_LOCALE=${APP_LOCALE:-es}
+      - APP_FALLBACK_LOCALE=en
+      - DB_CONNECTION=sqlite
+      - SESSION_DRIVER=database
+      - QUEUE_CONNECTION=database
+      - CACHE_STORE=database
+      - LOG_CHANNEL=stack
+      - LOG_STACK=single
+      - LOG_LEVEL=error
+      - ACME_STAGING=false
+    volumes:
+      - public:/var/www/html/public
+      - storage:/var/www/html/storage
+      - cache:/var/www/html/bootstrap/cache
+      - database:/var/www/html/database
+    networks:
+      - mapachessl
+
+  queue:
+    image: mapachessl:latest
+    container_name: mapachessl-queue
+    restart: unless-stopped
+    command: php artisan queue:work --sleep=3 --tries=1 --timeout=3700
+    environment:
+      - APP_NAME=MapacheSSL
+      - APP_ENV=production
+      - APP_KEY=${APP_KEY}
+      - APP_DEBUG=false
+      - APP_URL=${APP_URL:-https://example.com}
+      - APP_LOCALE=${APP_LOCALE:-es}
+      - APP_FALLBACK_LOCALE=en
+      - DB_CONNECTION=sqlite
+      - SESSION_DRIVER=database
+      - QUEUE_CONNECTION=database
+      - CACHE_STORE=database
+      - LOG_CHANNEL=stack
+      - LOG_STACK=single
+      - LOG_LEVEL=error
+      - ACME_STAGING=false
+    volumes:
+      - storage:/var/www/html/storage
+      - cache:/var/www/html/bootstrap/cache
+      - database:/var/www/html/database
+    depends_on:
+      - app
+    networks:
+      - mapachessl
+
+  scheduler:
+    image: mapachessl:latest
+    container_name: mapachessl-scheduler
+    restart: unless-stopped
+    command: sh -c "while true; do php artisan schedule:run --no-interaction; sleep 60; done"
+    environment:
+      - APP_NAME=MapacheSSL
+      - APP_ENV=production
+      - APP_KEY=${APP_KEY}
+      - APP_DEBUG=false
+      - APP_URL=${APP_URL:-https://example.com}
+      - DB_CONNECTION=sqlite
+      - QUEUE_CONNECTION=database
+      - LOG_CHANNEL=stack
+      - LOG_STACK=single
+      - LOG_LEVEL=error
+    volumes:
+      - storage:/var/www/html/storage
+      - cache:/var/www/html/bootstrap/cache
+      - database:/var/www/html/database
+    depends_on:
+      - app
+    networks:
+      - mapachessl
+
+  nginx:
+    image: nginx:alpine
+    container_name: mapachessl-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - public:/var/www/html/public:ro
+      - storage:/var/www/html/storage:ro
+    configs:
+      - source: nginx_config
+        target: /etc/nginx/conf.d/default.conf
+    depends_on:
+      - app
+    networks:
+      - mapachessl
+
+configs:
+  nginx_config:
+    content: |
+      server {
+          listen 80;
+          server_name localhost;
+          root /var/www/html/public;
+          index index.php;
+
+          charset utf-8;
+
+          # Security headers
+          add_header X-Frame-Options "DENY" always;
+          add_header X-Content-Type-Options "nosniff" always;
+          add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+          add_header X-XSS-Protection "1; mode=block" always;
+
+          location / {
+              try_files $$uri $$uri/ /index.php?$$query_string;
+          }
+
+          location = /favicon.ico { access_log off; log_not_found off; }
+          location = /robots.txt  { access_log off; log_not_found off; }
+
+          error_page 404 /index.php;
+
+          location ~ \.php$$ {
+              fastcgi_pass app:9000;
+              fastcgi_param SCRIPT_FILENAME $$realpath_root$$fastcgi_script_name;
+              include fastcgi_params;
+              fastcgi_hide_header X-Powered-By;
+              fastcgi_read_timeout 1900;
+              fastcgi_send_timeout 1900;
+              fastcgi_connect_timeout 60;
+
+              # Pass real client IP
+              fastcgi_param HTTP_X_FORWARDED_FOR $$proxy_add_x_forwarded_for;
+              fastcgi_param HTTP_X_REAL_IP $$remote_addr;
+              fastcgi_param HTTP_X_FORWARDED_PROTO $$scheme;
+          }
+
+          location ~ /\.(?!well-known).* {
+              deny all;
+          }
+      }
+
+volumes:
+  public:
+    name: mapachessl_public
+  storage:
+    name: mapachessl_storage
+  cache:
+    name: mapachessl_cache
+  database:
+    name: mapachessl_database
+
+networks:
+  mapachessl:
+    name: mapachessl_network
+    driver: bridge
