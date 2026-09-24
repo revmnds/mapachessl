@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: mapachessl-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${DB_DATABASE:-mapachessl}
+      - POSTGRES_USER=${DB_USERNAME:-mapachessl}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - mapachessl
+
   app:
     build:
       context: .
@@ -6,7 +24,11 @@ services:
     image: mapachessl:latest
     container_name: mapachessl-app
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
+      - RUN_MIGRATIONS=true
       - APP_NAME=MapacheSSL
       - APP_ENV=production
       - APP_KEY=${APP_KEY}
@@ -14,7 +36,12 @@ services:
       - APP_URL=${APP_URL:-https://example.com}
       - APP_LOCALE=${APP_LOCALE:-es}
       - APP_FALLBACK_LOCALE=en
-      - DB_CONNECTION=sqlite
+      - DB_CONNECTION=pgsql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=${DB_DATABASE:-mapachessl}
+      - DB_USERNAME=${DB_USERNAME:-mapachessl}
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
       - SESSION_DRIVER=database
       - QUEUE_CONNECTION=database
       - CACHE_STORE=database
@@ -27,7 +54,6 @@ services:
       - public:/var/www/html/public
       - storage:/var/www/html/storage
       - cache:/var/www/html/bootstrap/cache
-      - database:/var/www/html/database
     networks:
       - mapachessl
 
@@ -46,7 +72,12 @@ services:
       - APP_URL=${APP_URL:-https://example.com}
       - APP_LOCALE=${APP_LOCALE:-es}
       - APP_FALLBACK_LOCALE=en
-      - DB_CONNECTION=sqlite
+      - DB_CONNECTION=pgsql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=${DB_DATABASE:-mapachessl}
+      - DB_USERNAME=${DB_USERNAME:-mapachessl}
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
       - SESSION_DRIVER=database
       - QUEUE_CONNECTION=database
       - CACHE_STORE=database
@@ -58,9 +89,11 @@ services:
     volumes:
       - storage:/var/www/html/storage
       - cache:/var/www/html/bootstrap/cache
-      - database:/var/www/html/database
     depends_on:
-      - app
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     networks:
       - mapachessl
 
@@ -75,7 +108,12 @@ services:
       - APP_KEY=${APP_KEY}
       - APP_DEBUG=false
       - APP_URL=${APP_URL:-https://example.com}
-      - DB_CONNECTION=sqlite
+      - DB_CONNECTION=pgsql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=${DB_DATABASE:-mapachessl}
+      - DB_USERNAME=${DB_USERNAME:-mapachessl}
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
       - QUEUE_CONNECTION=database
       - LOG_CHANNEL=stack
       - LOG_STACK=single
@@ -83,9 +121,11 @@ services:
     volumes:
       - storage:/var/www/html/storage
       - cache:/var/www/html/bootstrap/cache
-      - database:/var/www/html/database
     depends_on:
-      - app
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     networks:
       - mapachessl
 
@@ -159,8 +199,8 @@ volumes:
     name: mapachessl_storage
   cache:
     name: mapachessl_cache
-  database:
-    name: mapachessl_database
+  postgres:
+    name: mapachessl_postgres
 
 networks:
   mapachessl:

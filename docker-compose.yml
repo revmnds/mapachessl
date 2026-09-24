@@ -1,10 +1,42 @@
+x-db-env: &db-env
+  DB_CONNECTION: pgsql
+  DB_HOST: postgres
+  DB_PORT: 5432
+  DB_DATABASE: ${DB_DATABASE:-mapachessl}
+  DB_USERNAME: ${DB_USERNAME:-mapachessl}
+  DB_PASSWORD: ${DB_PASSWORD:-secret}
+
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: mapachessl-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-mapachessl}
+      POSTGRES_USER: ${DB_USERNAME:-mapachessl}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - mapachessl
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: mapachessl-app
     restart: unless-stopped
+    environment:
+      <<: *db-env
+      RUN_MIGRATIONS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
@@ -22,6 +54,8 @@ services:
     command: php artisan queue:work --sleep=3 --tries=1 --timeout=3900
     deploy:
       replicas: ${QUEUE_WORKERS:-4}
+    environment:
+      <<: *db-env
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
@@ -30,7 +64,10 @@ services:
     networks:
       - mapachessl
     depends_on:
-      - app
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
 
   nginx:
     image: nginx:alpine
@@ -53,3 +90,4 @@ networks:
 
 volumes:
   public_build:
+  postgres_data:

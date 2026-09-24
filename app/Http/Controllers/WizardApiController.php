@@ -224,6 +224,12 @@ class WizardApiController extends Controller
                 return 'incomplete';
             }
 
+            // Serialize the capacity check across sessions (row locks only cover this request);
+            // released automatically at commit
+            if (DB::getDriverName() === 'pgsql') {
+                DB::statement('SELECT pg_advisory_xact_lock(?)', [crc32('acme-generation-capacity')]);
+            }
+
             if (CertificateRequest::activeGenerationsCount() >= (int) config('services.acme.max_concurrent')) {
                 return 'busy';
             }

@@ -19,12 +19,12 @@ RUN apk add --no-cache \
     zip \
     unzip \
     openssl \
-    sqlite-dev \
+    postgresql-dev \
     bind-tools \
     libzip-dev
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo pdo_sqlite gd zip
+RUN docker-php-ext-install pdo pdo_pgsql gd zip
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer

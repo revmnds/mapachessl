@@ -21,29 +21,15 @@ fi
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
-# Create SQLite database if it doesn't exist
-DB_PATH="/var/www/html/database/database.sqlite"
-if [ ! -f "$DB_PATH" ]; then
-    echo "Creating SQLite database..."
-    touch "$DB_PATH"
-fi
-chown www-data:www-data "$DB_PATH"
-chmod 664 "$DB_PATH"
-
-# Also ensure the database directory has correct permissions
-chown www-data:www-data /var/www/html/database
-chmod 775 /var/www/html/database
-
-# Run migrations if APP_KEY is set
-if [ -n "$APP_KEY" ]; then
+# Migrations run only in the container that sets RUN_MIGRATIONS (app), not in every worker.
+# Postgres may still be starting after a host reboot, so retry for a while.
+if [ "$RUN_MIGRATIONS" = "true" ]; then
     echo "Running migrations..."
-    php /var/www/html/artisan migrate --force --no-interaction || true
-fi
-
-# Enable WAL mode for SQLite (better concurrent read/write performance)
-DB_PATH="/var/www/html/database/database.sqlite"
-if [ -f "$DB_PATH" ]; then
-    sqlite3 "$DB_PATH" "PRAGMA journal_mode=WAL;" 2>/dev/null || true
+    for i in $(seq 1 15); do
+        php /var/www/html/artisan migrate --force --no-interaction && break
+        echo "Database not ready, retrying in 2s ($i/15)..."
+        sleep 2
+    done
 fi
 
 # Clear and cache config
