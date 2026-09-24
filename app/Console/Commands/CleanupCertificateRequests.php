@@ -29,9 +29,9 @@ class CleanupCertificateRequests extends Command
             ->where('updated_at', '<', now()->subDays(7))
             ->delete();
 
-        // Old completed requests (older than 30 days)
+        // Completed requests hold the private key: keep them only 24 hours
         $completed = CertificateRequest::where('status', 'completed')
-            ->where('updated_at', '<', now()->subDays(30))
+            ->where('updated_at', '<', now()->subDay())
             ->delete();
 
         $total = $abandoned + $stale + $failed + $completed;

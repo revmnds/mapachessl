@@ -15,42 +15,49 @@ class GenerateCertificate implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 2100; // ~35 min (all tokens verified in parallel, max 30 min wait + buffer)
+    public int $timeout = CertificateRequest::JOB_TIMEOUT_SECONDS;
     public int $tries = 1;
 
     public function __construct(
-        private int $certRequestId
+        private int $certRequestId,
+        private string $attempt,
     ) {}
 
     public function handle(AcmeService $acme): void
     {
         $certRequest = CertificateRequest::find($this->certRequestId);
 
-        if (!$certRequest || $certRequest->status !== 'in_progress') {
-            Log::info('GenerateCertificate job: record not found or not in_progress, aborting', [
+        if (!$certRequest || !$certRequest->isCurrentAttempt($this->attempt)) {
+            Log::info('GenerateCertificate job: record gone or attempt superseded, aborting', [
                 'id' => $this->certRequestId,
             ]);
             return;
         }
 
+        $certRequest->update(['job_started_at' => now()]);
+
         Log::info('GenerateCertificate job: starting', ['domain' => $certRequest->domain]);
 
+        $deadline = time() + CertificateRequest::JOB_BUDGET_SECONDS;
         $forceNewAuth = $certRequest->retry_count > 0 || $certRequest->is_wildcard;
-        $result = $acme->generateCertificate($certRequest, $forceNewAuth);
+        $result = $acme->generateCertificate($certRequest, $this->attempt, $deadline, $forceNewAuth);
 
         // Auto-retry once on stale authorization (cached auth expired at Let's Encrypt)
         if (!$result['success'] && $acme->isStaleAuthorizationError($result['raw_error'] ?? '')) {
             Log::warning('GenerateCertificate job: stale authorization, retrying with fresh order', [
                 'domain' => $certRequest->domain,
             ]);
+            CertificateRequest::where('id', $this->certRequestId)
+                ->where('generation_attempt', $this->attempt)
+                ->update(['challenge_token' => null, 'challenge_filename' => null]);
             $acme = new AcmeService();
-            $result = $acme->generateCertificate($certRequest, forceNewAuth: true);
+            $result = $acme->generateCertificate($certRequest, $this->attempt, $deadline, forceNewAuth: true);
         }
 
-        // Re-check record still exists (may have been cancelled during generation)
+        // Re-check the record still belongs to this attempt (cancelled, restarted or marked stale)
         $certRequest = CertificateRequest::find($this->certRequestId);
-        if (!$certRequest) {
-            Log::info('GenerateCertificate job: record deleted during generation (cancelled)');
+        if (!$certRequest || !$certRequest->isCurrentAttempt($this->attempt)) {
+            Log::info('GenerateCertificate job: attempt no longer current, discarding result');
             return;
         }
 

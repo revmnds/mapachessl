@@ -10,13 +10,14 @@ class CertificateRequest extends Model
         'session_token',
         'domain',
         'is_wildcard',
-        'email',
         'challenge_type',
         'challenge_token',
         'challenge_filename',
         'current_step',
         'status',
         'generation_started_at',
+        'generation_attempt',
+        'job_started_at',
         'retry_count',
         'error_message',
         'certificate_pem',
@@ -25,10 +26,19 @@ class CertificateRequest extends Model
         'expires_at',
     ];
 
+    // Max time a job may run: two ACME attempts (stale auth retry) share this budget
+    public const JOB_BUDGET_SECONDS = 3600;
+    public const JOB_TIMEOUT_SECONDS = 3900;
+
+    // A dispatched job that no worker picked up within this window is considered lost
+    public const QUEUE_WAIT_SECONDS = 300;
+
     protected $casts = [
         'expires_at' => 'datetime',
         'generation_started_at' => 'datetime',
+        'job_started_at' => 'datetime',
         'is_wildcard' => 'boolean',
+        'private_key_pem' => 'encrypted',
     ];
 
     public static function findByToken(string $token): ?self
@@ -99,8 +109,9 @@ class CertificateRequest extends Model
             'private_key_pem' => $key,
             'chain_pem' => $chain,
             'expires_at' => $expiresAt,
-            'current_step' => 5,
+            'current_step' => 4,
             'generation_started_at' => null,
+            'job_started_at' => null,
         ]);
     }
 
@@ -110,6 +121,7 @@ class CertificateRequest extends Model
             'status' => 'failed',
             'error_message' => $error,
             'generation_started_at' => null,
+            'job_started_at' => null,
         ]);
     }
 
@@ -130,18 +142,54 @@ class CertificateRequest extends Model
             return false;
         }
 
-        // Consider stale after 35 minutes (max 30 min wait + propagation + buffer)
-        return $this->generation_started_at->diffInSeconds(now()) < 2100;
+        if ($this->job_started_at) {
+            return $this->job_started_at->diffInSeconds(now()) < self::JOB_TIMEOUT_SECONDS;
+        }
+
+        // Dispatched but not picked up by a worker yet
+        return $this->generation_started_at->diffInSeconds(now()) < self::QUEUE_WAIT_SECONDS;
     }
 
-    public function lockGeneration(): void
+    /**
+     * Mark the request as locked for a new generation attempt.
+     * The attempt id lets a job detect it was superseded by a newer one.
+     */
+    public function lockGeneration(): string
     {
-        $this->update(['generation_started_at' => now()]);
+        $attempt = (string) \Illuminate\Support\Str::uuid();
+
+        $this->update([
+            'generation_started_at' => now(),
+            'generation_attempt' => $attempt,
+            'job_started_at' => null,
+        ]);
+
+        return $attempt;
     }
 
     public function unlockGeneration(): void
     {
-        $this->update(['generation_started_at' => null]);
+        $this->update([
+            'generation_started_at' => null,
+            'generation_attempt' => null,
+        ]);
+    }
+
+    /**
+     * Whether this record still belongs to the given generation attempt
+     */
+    public function isCurrentAttempt(string $attempt): bool
+    {
+        return $this->status === 'in_progress' && $this->generation_attempt === $attempt;
+    }
+
+    public static function activeGenerationsCount(): int
+    {
+        return self::where('status', 'in_progress')
+            ->whereNotNull('generation_started_at')
+            ->get(['generation_started_at', 'job_started_at'])
+            ->filter(fn (self $r) => $r->isGenerating())
+            ->count();
     }
 
     public function hasCertificate(): bool

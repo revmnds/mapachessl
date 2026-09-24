@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CertificateRequest;
 use Illuminate\Support\Facades\Log;
 use skoerfgen\ACMECert\ACMECert;
+use skoerfgen\ACMECert\ACME_Exception;
 
 class AcmeService
 {
@@ -24,7 +25,7 @@ class AcmeService
         // Ensure directory exists
         $dir = dirname($this->accountKeyPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, 0700, true);
         }
 
         // Initialize client (true = live, false = staging)
@@ -36,10 +37,21 @@ class AcmeService
      */
     private function ensureAccount(): void
     {
-        // Generate account key if it doesn't exist
+        // Generate account key if it doesn't exist (locked: several workers may start at once)
         if (!file_exists($this->accountKeyPath)) {
-            $accountKey = $this->client->generateRSAKey(4096);
-            file_put_contents($this->accountKeyPath, $accountKey);
+            $lock = fopen($this->accountKeyPath . '.lock', 'c');
+            flock($lock, LOCK_EX);
+            try {
+                if (!file_exists($this->accountKeyPath)) {
+                    $accountKey = $this->client->generateRSAKey(4096);
+                    file_put_contents($this->accountKeyPath . '.tmp', $accountKey);
+                    chmod($this->accountKeyPath . '.tmp', 0600);
+                    rename($this->accountKeyPath . '.tmp', $this->accountKeyPath);
+                }
+            } finally {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
         }
 
         // Load the account key
@@ -66,9 +78,11 @@ class AcmeService
      * 4. Completes validation and generates certificate
      *
      * @param CertificateRequest $request The certificate request (will be updated with tokens)
+     * @param string $attempt Generation attempt id; the run aborts if the record moves to another attempt
+     * @param int $deadline Unix timestamp after which waiting for the user stops
      * @return array Result with success/error and certificate data
      */
-    public function generateCertificate(CertificateRequest $request, bool $forceNewAuth = false): array
+    public function generateCertificate(CertificateRequest $request, string $attempt, int $deadline, bool $forceNewAuth = false): array
     {
         try {
             $this->ensureAccount();
@@ -104,7 +118,12 @@ class AcmeService
             // For non-wildcard: 1 callback (auth reuse may skip it entirely if already valid).
             $groupSize = $request->is_wildcard ? 2 : 1;
 
-            $callback = function ($opts) use ($request, $service, &$collectedChallenges, &$callbackCalled, &$callbackCount, $groupSize) {
+            // Writes only land if the record still belongs to this attempt
+            $saveTokens = fn (array $values) => CertificateRequest::where('id', $request->id)
+                ->where('generation_attempt', $attempt)
+                ->update($values);
+
+            $callback = function ($opts) use ($request, $service, $attempt, $deadline, $saveTokens, &$collectedChallenges, &$callbackCalled, &$callbackCount, $groupSize) {
                 $callbackCalled = true;
                 $callbackCount++;
                 $domain = $opts['domain'];
@@ -125,12 +144,12 @@ class AcmeService
                 // Save tokens to DB immediately so frontend can show them
                 if ($request->challenge_type === 'dns') {
                     $tokens = array_column($collectedChallenges, 'token');
-                    $request->update([
+                    $saveTokens([
                         'challenge_token' => implode("\n", $tokens),
                         'challenge_filename' => '_acme-challenge',
                     ]);
                 } else {
-                    $request->update([
+                    $saveTokens([
                         'challenge_token' => $token,
                         'challenge_filename' => $filename,
                     ]);
@@ -151,16 +170,18 @@ class AcmeService
                 // Last callback in group: poll until ALL challenges are verified
                 $baseDomain = $request->domain;
                 $startTime = time();
+                $maxWait = min(self::MAX_WAIT_TIME, $deadline - $startTime);
 
                 Log::info('All tokens collected, waiting for user to configure', [
                     'domain' => $baseDomain,
                     'tokens' => count($collectedChallenges),
                 ]);
 
-                while ((time() - $startTime) < self::MAX_WAIT_TIME) {
-                    // Check cancellation
-                    $fresh = \App\Models\CertificateRequest::find($request->id);
-                    if (!$fresh || $fresh->status !== 'in_progress') {
+                $allVerified = false;
+                while ((time() - $startTime) < $maxWait) {
+                    // Check cancellation (deleted, marked failed, or superseded by a new attempt)
+                    $fresh = CertificateRequest::find($request->id);
+                    if (!$fresh || !$fresh->isCurrentAttempt($attempt)) {
                         Log::info('Generation cancelled by user, aborting');
                         throw new \Exception('cancelled');
                     }
@@ -279,7 +300,7 @@ class AcmeService
 
             return [
                 'success' => false,
-                'error' => $this->translateError($errorMessage, $request->challenge_type, $request->is_wildcard),
+                'error' => $this->translateError($errorMessage, $request->challenge_type, $request->is_wildcard, $e instanceof ACME_Exception),
                 'raw_error' => $errorMessage,
             ];
         }
@@ -480,39 +501,116 @@ class AcmeService
         return $foundValues;
     }
 
+    private const HTTP_MAX_REDIRECTS = 3;
+    private const HTTP_MAX_BODY = 4096;
+
     /**
-     * Verify HTTP challenge file is accessible
+     * Check whether the user already serves the HTTP challenge file.
+     *
+     * The domain is user input, so this request must not reach internal services (SSRF):
+     * every hop is resolved here, pinned to a public IP (no DNS rebinding) and redirects
+     * are followed manually. If the domain points to a private address we skip the
+     * pre-check and let Let's Encrypt validate, which fails with its own clear error.
      */
     public function verifyHttpChallenge(string $domain, string $filename, string $expectedContent): bool
     {
-        // Handle case where filename already includes the full path
-        if (str_starts_with($filename, '/.well-known/acme-challenge/')) {
-            $url = "http://{$domain}{$filename}";
-        } elseif (str_starts_with($filename, '.well-known/acme-challenge/')) {
-            $url = "http://{$domain}/{$filename}";
-        } else {
-            $url = "http://{$domain}/.well-known/acme-challenge/{$filename}";
+        $url = "http://{$domain}/.well-known/acme-challenge/" . basename($filename);
+        $result = $this->fetchPublicUrl($url);
+
+        if ($result['status'] === 'private') {
+            Log::warning('HTTP challenge target resolves to a non-public address, skipping pre-check', [
+                'domain' => $domain,
+                'host' => $result['host'],
+            ]);
+            return true;
         }
 
-        $context = stream_context_create([
-            'http' => [
-                'timeout' => 10,
-                'follow_location' => true,
-                'max_redirects' => 3,
-            ],
-            'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-            ],
-        ]);
+        return $result['status'] === 'ok' && trim($result['body']) === $expectedContent;
+    }
 
-        $content = @file_get_contents($url, false, $context);
+    /**
+     * GET a URL only through public IPs, following redirects like Let's Encrypt does (ports 80/443).
+     *
+     * @return array{status: 'ok'|'fail'|'private', body: string, host: string}
+     */
+    public function fetchPublicUrl(string $url): array
+    {
+        for ($hop = 0; $hop <= self::HTTP_MAX_REDIRECTS; $hop++) {
+            $parts = parse_url($url);
+            $scheme = strtolower($parts['scheme'] ?? '');
+            $host = strtolower($parts['host'] ?? '');
+            $port = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
 
-        if ($content === false) {
-            return false;
+            if (!in_array($scheme, ['http', 'https'], true) || $host === '' || !in_array($port, [80, 443], true)) {
+                return ['status' => 'fail', 'body' => '', 'host' => $host];
+            }
+
+            // IP literals are checked as-is; hostnames are resolved
+            $literal = trim($host, '[]');
+            $ips = filter_var($literal, FILTER_VALIDATE_IP) ? [$literal] : $this->resolveHost($host);
+            if (empty($ips)) {
+                return ['status' => 'fail', 'body' => '', 'host' => $host];
+            }
+
+            $publicIps = array_values(array_filter($ips, fn ($ip) => $this->isPublicIp($ip)));
+            if (empty($publicIps)) {
+                return ['status' => 'private', 'body' => '', 'host' => $host];
+            }
+
+            $ip = $publicIps[0];
+            $body = '';
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RESOLVE => ["{$host}:{$port}:" . (str_contains($ip, ':') ? "[{$ip}]" : $ip)],
+                CURLOPT_FOLLOWLOCATION => false,
+                CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_TIMEOUT => 10,
+                // Let's Encrypt accepts any certificate when a challenge redirects to HTTPS
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => 0,
+                CURLOPT_USERAGENT => 'MapacheSSL challenge pre-check',
+                CURLOPT_WRITEFUNCTION => function ($ch, $chunk) use (&$body) {
+                    $body .= $chunk;
+                    // Returning less than received aborts the transfer once we have enough
+                    return strlen($body) > self::HTTP_MAX_BODY ? 0 : strlen($chunk);
+                },
+            ]);
+            curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            $location = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+            curl_close($ch);
+
+            if ($code >= 300 && $code < 400 && $location) {
+                $url = $location;
+                continue;
+            }
+
+            return ['status' => $code === 200 ? 'ok' : 'fail', 'body' => $body, 'host' => $host];
         }
 
-        return trim($content) === $expectedContent;
+        return ['status' => 'fail', 'body' => '', 'host' => ''];
+    }
+
+    private function resolveHost(string $host): array
+    {
+        $records = @dns_get_record($host, DNS_A + DNS_AAAA) ?: [];
+        $ips = array_filter(array_map(fn ($r) => $r['ip'] ?? $r['ipv6'] ?? null, $records));
+
+        return array_values(array_unique($ips));
+    }
+
+    /**
+     * Globally routable only: excludes private, loopback, link-local (cloud metadata), CGNAT, etc.
+     */
+    private function isPublicIp(string $ip): bool
+    {
+        // IPv4-mapped IPv6 (::ffff:127.0.0.1) must be judged by its IPv4 part
+        if (preg_match('/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i', $ip, $m)) {
+            $ip = $m[1];
+        }
+
+        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_GLOBAL_RANGE) !== false;
     }
 
     /**
@@ -528,7 +626,7 @@ class AcmeService
     /**
      * Translate ACME errors to user-friendly messages
      */
-    private function translateError(string $error, string $challengeType = 'http', bool $isWildcard = false): string
+    private function translateError(string $error, string $challengeType = 'http', bool $isWildcard = false, bool $fromAcme = false): string
     {
         $verificationHint = $isWildcard || $challengeType === 'dns'
             ? __('messages.errors.hint_dns')
@@ -571,6 +669,10 @@ class AcmeService
             }
         }
 
-        return __('messages.errors.generic_error', ['error' => $error]);
+        // Let's Encrypt problem details describe the user's own domain and help them fix it.
+        // Anything else is internal (paths, network, library errors) and stays in the log.
+        return $fromAcme
+            ? __('messages.errors.generic_error', ['error' => mb_strimwidth($error, 0, 500, '...')])
+            : __('messages.errors.internal_error');
     }
 }

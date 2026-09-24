@@ -11,7 +11,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->trustProxies(at: '*');
+        $middleware->trustProxies(at: require __DIR__.'/trusted-proxies.php');
+        // Switching language is harmless; a stale token here showed "419 Page Expired" to users who left the tab open
+        $middleware->validateCsrfTokens(except: ['locale']);
         $middleware->web(append: [
             \App\Http\Middleware\SetLocale::class,
         ]);

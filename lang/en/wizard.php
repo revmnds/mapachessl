@@ -26,9 +26,6 @@ return [
     'step1_wildcard_hint' => '(requires DNS)',
 
     // Step 2: Email
-    'step2_title' => 'Your email',
-    'step2_subtitle' => 'To notify you before it expires',
-    'step2_placeholder' => 'you@email.com',
 
     // Step 3: Verification
     'step3_title' => 'Verification',
@@ -77,8 +74,9 @@ return [
     'verification_waiting_http' => 'Upload the file to your server. The system will verify automatically.',
 
     // No refresh warning
-    'no_refresh_warning' => 'Do not refresh the page',
-    'no_refresh_hint' => 'or the process will restart',
+    'no_refresh_warning' => 'You can close this page.',
+    'no_refresh_hint' => 'The process keeps running on the server and you can pick it up again from this browser.',
+    'reconnecting' => 'Connection lost, retrying...',
 
     // Stale DNS warning
     'stale_dns_title' => 'Old DNS records detected',
@@ -88,6 +86,7 @@ return [
     // Step 5: Success
     'step5_success_title' => 'Done',
     'step5_expires_label' => 'Expires',
+    'step5_retention_note' => 'Download it now: for security it is deleted from our server after 24 hours.',
     'step5_includes_label' => 'Includes',
     'step5_includes_value' => 'Certificate, key, chain',
 

@@ -13,7 +13,6 @@ export function wizard() {
         data: {
             domain: '',
             is_wildcard: false,
-            email: '',
             challenge_type: 'http',
             challenge_token: '',
             challenge_filename: '',
@@ -24,6 +23,8 @@ export function wizard() {
 
         async init() {
             const embedded = window.__wizardSession;
+
+            this.listenForReconnect();
 
             if (embedded && embedded.has_session && embedded.data) {
                 // Session found — restore correct step synchronously (no flash)
@@ -36,36 +37,59 @@ export function wizard() {
             this.step = 'welcome';
             this.visibleStep = 'welcome';
 
-            // Clean URL if it had a stale token
-            const urlToken = this.getTokenFromUrl();
-            if (urlToken) this.clearTokenFromUrl();
+            this.clearLegacyUrlToken();
         },
 
-        // --- URL session helpers ---
-
-        getTokenFromUrl() {
-            return new URLSearchParams(window.location.search).get('s');
-        },
-
-        setTokenInUrl(token) {
+        // Old links carried the session token as ?s=; the session now lives only in the cookie
+        clearLegacyUrlToken() {
             const url = new URL(window.location);
-            url.searchParams.set('s', token);
-            window.history.replaceState({}, '', url);
-        },
-
-        clearTokenFromUrl() {
-            const url = new URL(window.location);
+            if (!url.searchParams.has('s')) return;
             url.searchParams.delete('s');
             window.history.replaceState({}, '', url);
         },
 
+        csrfToken() {
+            return document.querySelector('meta[name="csrf-token"]').content;
+        },
+
+        /**
+         * POST to the API. If the Laravel session expired (tab left open for hours),
+         * fetch a fresh CSRF token and retry once instead of failing silently.
+         */
+        async post(url, body = {}) {
+            const send = () => fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': this.csrfToken(),
+                },
+                body: JSON.stringify(body),
+            });
+
+            let response = await send();
+            if (response.status === 419) {
+                const fresh = await fetch('/api/wizard/csrf', { headers: { 'Accept': 'application/json' } });
+                const { token } = await fresh.json();
+                document.querySelector('meta[name="csrf-token"]').content = token;
+                response = await send();
+            }
+            return response;
+        },
+
+        errorFromResponse(response, result) {
+            if (response.status === 401) {
+                return { server: window.translations?.error_session_expired || 'Session expired. Please start over.' };
+            }
+            if (response.status === 429) {
+                return result.errors || { rate_limit: window.messages?.rate_limit?.generic || 'Rate limit exceeded. Try again later.' };
+            }
+            return result.errors || { server: result.error || window.messages?.errors?.server || 'Error' };
+        },
+
         async fetchFullSessionData() {
             try {
-                const urlToken = this.getTokenFromUrl();
-                const statusUrl = urlToken
-                    ? `/api/wizard/status?s=${urlToken}`
-                    : '/api/wizard/status';
-                const response = await fetch(statusUrl);
+                const response = await fetch('/api/wizard/status');
                 const result = await response.json();
                 if (result.has_session && result.data) {
                     this.data = { ...this.data, ...result.data };
@@ -76,25 +100,23 @@ export function wizard() {
         },
 
         restoreStep(data) {
-            if (data.session_token) {
-                this.setTokenInUrl(data.session_token);
-            }
+            this.clearLegacyUrlToken();
 
             if (data.status === 'completed') {
-                this.goToStep(5, true);
+                this.goToStep(4, true);
                 this.fetchFullSessionData();
                 return;
             }
             if (data.status === 'failed') {
-                this.goToStep(5, true);
+                this.goToStep(4, true);
                 return;
             }
 
-            // in_progress with active generation — resume polling at step 4
+            // in_progress with active generation — resume polling at step 3
             if (data.is_generating || data.challenge_token) {
                 this.waitingForDns = true;
                 this.generating = true;
-                this.goToStep(4, true);
+                this.goToStep(3, true);
                 this.startStatusPhrases(data.challenge_token ? 'verification' : 'token');
                 this.startTokenPolling();
                 return;
@@ -129,7 +151,7 @@ export function wizard() {
             const container = document.getElementById('step-indicators');
             const dots = container.querySelectorAll('.step-dot');
 
-            if (typeof step === 'number' && step >= 1 && step <= 4) {
+            if (typeof step === 'number' && step >= 1 && step <= 3) {
                 container.classList.remove('hidden');
                 dots.forEach((dot, index) => {
                     const dotStep = index + 1;
@@ -148,32 +170,21 @@ export function wizard() {
             }
         },
 
+        pendingDiscard: null,
+
         async start() {
             this.loading = true;
             this.errors = {};
 
             try {
-                const response = await fetch('/api/wizard/start', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                    },
-                });
+                await this.pendingDiscard;
+                const response = await this.post('/api/wizard/start');
+                const result = await response.json().catch(() => ({}));
 
-                if (response.status === 429) {
-                    const result = await response.json();
-                    this.errors = result.errors || { rate_limit: window.messages?.rate_limit?.generic || 'Rate limit exceeded.' };
-                    this.loading = false;
-                    return;
-                }
-
-                const result = await response.json();
-                if (result.success) {
-                    if (result.data?.session_token) {
-                        this.setTokenInUrl(result.data.session_token);
-                    }
+                if (response.ok && result.success) {
                     this.goToStep(1);
+                } else {
+                    this.errors = this.errorFromResponse(response, result);
                 }
             } catch (e) {
                 this.errors = { server: window.translations?.error_connection_failed || 'Connection error.' };
@@ -187,13 +198,19 @@ export function wizard() {
             this.waitingForDns = false;
             this.generating = false;
             this.stopTokenPolling();
-            this.clearTokenFromUrl();
 
             this.goToStep('welcome');
+            this.resetData();
+
+            // Drops the current request (a running job notices and stops) and clears the cookie.
+            // start() waits for it so a late cookie deletion can't wipe the new session.
+            this.pendingDiscard = this.post('/api/wizard/discard').catch(() => {});
+        },
+
+        resetData() {
             this.data = {
                 domain: '',
                 is_wildcard: false,
-                email: '',
                 challenge_type: 'http',
                 challenge_token: '',
                 challenge_filename: '',
@@ -201,66 +218,27 @@ export function wizard() {
                 error_message: '',
                 expires_at: ''
             };
-
-            try {
-                const response = await fetch('/api/wizard/start-fresh', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                    }
-                });
-
-                if (response.status === 429) {
-                    const result = await response.json();
-                    this.errors = result.errors || { rate_limit: window.messages?.rate_limit?.generic || 'Rate limit exceeded.' };
-                }
-            } catch (e) {
-                // Network error
-            }
         },
 
         async saveStep(stepNum) {
             this.loading = true;
             this.errors = {};
 
-            const payload = {};
-            if (stepNum === 1) {
-                payload.domain = this.data.domain;
-                payload.is_wildcard = this.data.is_wildcard;
-            }
-            if (stepNum === 2) payload.email = this.data.email;
-            if (stepNum === 3) payload.challenge_type = this.data.challenge_type;
+            const payload = stepNum === 1
+                ? { domain: this.data.domain, is_wildcard: this.data.is_wildcard }
+                : { challenge_type: this.data.challenge_type };
 
             try {
-                const response = await fetch(`/api/wizard/step/${stepNum}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                    },
-                    body: JSON.stringify(payload)
-                });
+                const response = await this.post(`/api/wizard/step/${stepNum}`, payload);
+                const result = await response.json().catch(() => ({}));
 
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        this.errors = { server: window.translations?.error_session_expired || 'Session expired. Please start over.' };
-                    } else if (response.status === 429) {
-                        this.errors = { server: window.messages?.rate_limit?.generic || 'Rate limit exceeded. Try again later.' };
-                    }
-                    this.loading = false;
-                    return;
-                }
-
-                const result = await response.json();
-
-                if (result.success) {
+                if (response.ok && result.success) {
                     if (result.data) {
                         this.data = { ...this.data, ...result.data };
                     }
                     this.goToStep(stepNum + 1);
-                } else if (result.errors) {
-                    this.errors = result.errors;
+                } else {
+                    this.errors = this.errorFromResponse(response, result);
                 }
             } catch (e) {
                 this.errors = { server: window.translations?.error_connection_failed || 'Connection error.' };
@@ -269,7 +247,9 @@ export function wizard() {
             this.loading = false;
         },
 
-        pollingInterval: null,
+        pollingTimer: null,
+        polling: false,
+        reconnecting: false,
         waitingForDns: false,
         generating: false,
 
@@ -501,129 +481,127 @@ export function wizard() {
             this.startStatusPhrases('token');
 
             try {
-                const response = await fetch('/api/wizard/generate', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                    }
-                });
+                const response = await this.post('/api/wizard/generate');
+                const result = await response.json().catch(() => ({}));
 
-                if (!response.ok) {
-                    const result = await response.json().catch(() => ({}));
-                    if (response.status === 401) {
-                        this.errors = { server: window.translations?.error_session_expired || 'Session expired. Please start over.' };
-                    } else if (response.status === 429) {
-                        this.errors = { server: window.messages?.rate_limit?.generic || 'Rate limit exceeded. Try again later.' };
-                    } else {
-                        this.errors = result.errors || { server: result.error || 'Error' };
-                    }
-                    this.loading = false;
-                    this.generating = false;
-                    this.waitingForDns = false;
-                    this.stopStatusPhrases();
-                    return;
-                }
-
-                const result = await response.json();
-
-                if (result.success) {
+                if (response.ok && result.success) {
                     if (result.data) {
                         this.data = { ...this.data, ...result.data };
                     }
                     this.startTokenPolling();
+                } else if (response.status === 409) {
+                    // A generation for this request is already running (other tab, or polling had stopped): follow it
+                    this.startTokenPolling();
                 } else {
-                    this.errors = result.errors || { server: result.error || 'Error' };
+                    this.errors = this.errorFromResponse(response, result);
                     this.waitingForDns = false;
                     this.generating = false;
                     this.stopStatusPhrases();
                 }
             } catch (e) {
-                this.waitingForDns = false;
-                this.generating = false;
-                this.stopStatusPhrases();
-                this.errors = { server: window.translations?.error_connection_failed || 'Connection error.' };
+                // The request may have reached the server; polling tells us whether a job is running
+                this.startTokenPolling();
             }
 
             this.loading = false;
         },
 
-        pollFailures: 0,
+        pollDelay: 2000,
 
         startTokenPolling() {
             this.stopTokenPolling();
-            this.pollFailures = 0;
-            this.pollingInterval = setInterval(async () => {
-                try {
-                    const response = await fetch('/api/wizard/poll-tokens');
+            this.polling = true;
+            this.pollDelay = 2000;
+            this.pollOnce();
+        },
 
-                    if (!response.ok) {
-                        this.pollFailures++;
-                        if (response.status === 401) {
-                            this.stopTokenPolling();
-                            this.stopStatusPhrases();
-                            this.waitingForDns = false;
-                            this.generating = false;
-                            this.errors = { server: window.translations?.error_session_expired || 'Session expired. Please start over.' };
-                            return;
-                        }
-                        if (this.pollFailures >= 5) {
-                            this.stopTokenPolling();
-                            this.stopStatusPhrases();
-                            this.waitingForDns = false;
-                            this.generating = false;
-                            this.errors = { server: window.translations?.error_connection_failed || 'Connection error.' };
-                        }
-                        return;
-                    }
+        scheduleNextPoll() {
+            if (!this.polling) return;
+            this.pollingTimer = setTimeout(() => this.pollOnce(), this.pollDelay);
+        },
 
-                    const result = await response.json();
-                    this.pollFailures = 0;
+        // Network drops (laptop sleep, wifi switch) never end the wait: back off and keep trying
+        pollFailed() {
+            this.reconnecting = true;
+            this.pollDelay = Math.min(this.pollDelay * 2, 15000);
+            this.scheduleNextPoll();
+        },
 
-                    if (result.success && result.data) {
-                        // Switch to verification phrases when tokens arrive
-                        if (result.data.challenge_token && !this.data.challenge_token) {
-                            this.startStatusPhrases('verification');
-                        }
+        async pollOnce() {
+            clearTimeout(this.pollingTimer);
+            if (!this.polling) return;
 
-                        this.data = { ...this.data, ...result.data };
+            let response;
+            try {
+                response = await fetch('/api/wizard/poll-tokens', { headers: { 'Accept': 'application/json' } });
+            } catch (e) {
+                return this.pollFailed();
+            }
 
-                        if (result.data.status === 'completed') {
-                            this.stopTokenPolling();
-                            this.stopStatusPhrases();
-                            this.waitingForDns = false;
-                            this.generating = false;
-                            this.goToStep(5);
-                            return;
-                        }
+            if (!this.polling) return;
 
-                        if (result.data.status === 'failed') {
-                            this.stopTokenPolling();
-                            this.stopStatusPhrases();
-                            this.waitingForDns = false;
-                            this.generating = false;
-                            this.goToStep(5);
-                            return;
-                        }
-                    }
-                } catch (e) {
-                    this.pollFailures++;
-                    if (this.pollFailures >= 5) {
-                        this.stopTokenPolling();
-                        this.stopStatusPhrases();
-                        this.waitingForDns = false;
-                        this.generating = false;
-                        this.errors = { server: window.translations?.error_connection_failed || 'Connection error.' };
-                    }
+            if (response.status === 401) {
+                this.finishWaiting();
+                this.errors = { server: window.translations?.error_session_expired || 'Session expired. Please start over.' };
+                return;
+            }
+
+            if (!response.ok) {
+                return this.pollFailed();
+            }
+
+            const result = await response.json().catch(() => null);
+            if (!result) return this.pollFailed();
+
+            this.reconnecting = false;
+            this.pollDelay = 2000;
+
+            if (result.success && result.data) {
+                // Switch to verification phrases when tokens arrive
+                if (result.data.challenge_token && !this.data.challenge_token) {
+                    this.startStatusPhrases('verification');
                 }
-            }, 2000);
+
+                this.data = { ...this.data, ...result.data };
+
+                if (result.data.status === 'completed' || result.data.status === 'failed') {
+                    this.finishWaiting();
+                    this.goToStep(4);
+                    return;
+                }
+
+                // No job behind this request (e.g. the generate call never reached the server)
+                if (!result.data.is_generating && !result.data.challenge_token) {
+                    this.finishWaiting();
+                    this.errors = { server: window.translations?.error_connection_failed || 'Connection error.' };
+                    return;
+                }
+            }
+
+            this.scheduleNextPoll();
+        },
+
+        finishWaiting() {
+            this.stopTokenPolling();
+            this.stopStatusPhrases();
+            this.waitingForDns = false;
+            this.generating = false;
         },
 
         stopTokenPolling() {
-            if (this.pollingInterval) {
-                clearInterval(this.pollingInterval);
-                this.pollingInterval = null;
-            }
+            this.polling = false;
+            this.reconnecting = false;
+            clearTimeout(this.pollingTimer);
+            this.pollingTimer = null;
+        },
+
+        // Poll right away when the tab regains focus or the network comes back
+        listenForReconnect() {
+            const wake = () => {
+                if (this.polling && document.visibilityState === 'visible') this.pollOnce();
+            };
+            window.addEventListener('online', wake);
+            document.addEventListener('visibilitychange', wake);
         },
 
         goBack() {
@@ -645,38 +623,12 @@ export function wizard() {
             this.data.fullchain_pem = '';
             this.data.expires_at = '';
             this.errors = {};
-            this.goToStep(4);
+            this.goToStep(3);
         },
 
-        async cancelGeneration() {
-            this.stopTokenPolling();
-            this.stopStatusPhrases();
-            this.clearTokenFromUrl();
-            this.goToStep('welcome');
-            this.waitingForDns = false;
-            this.generating = false;
+        cancelGeneration() {
             this.loading = false;
-            this.errors = {};
-
-            fetch('/api/wizard/discard', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                }
-            }).catch(() => {});
-
-            this.data = {
-                domain: '',
-                is_wildcard: false,
-                email: '',
-                challenge_type: 'http',
-                challenge_token: '',
-                challenge_filename: '',
-                status: '',
-                error_message: '',
-                expires_at: ''
-            };
+            this.startFresh();
         },
 
         copiedField: null,

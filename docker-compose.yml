@@ -17,9 +17,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: mapachessl-queue
     restart: unless-stopped
-    command: php artisan queue:work --sleep=3 --tries=1 --timeout=2100
+    # Each generation can hold a worker for up to an hour while the user sets up DNS/HTTP
+    command: php artisan queue:work --sleep=3 --tries=1 --timeout=3900
+    deploy:
+      replicas: ${QUEUE_WORKERS:-4}
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor

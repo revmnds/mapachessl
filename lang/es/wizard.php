@@ -32,9 +32,6 @@ return [
     'step1_wildcard_hint' => '(requiere DNS)',
 
     // Step 2: Email
-    'step2_title' => 'Tu email',
-    'step2_subtitle' => 'Para notificarte antes de que expire',
-    'step2_placeholder' => 'tu@email.com',
 
     // Step 3: Verificación
     'step3_title' => 'Verificación',
@@ -83,8 +80,9 @@ return [
     'verification_waiting_http' => 'Sube el archivo a tu servidor. El sistema verificará automáticamente.',
 
     // Aviso de no refrescar
-    'no_refresh_warning' => 'No refresques la página',
-    'no_refresh_hint' => 'o el proceso se reiniciará',
+    'no_refresh_warning' => 'Puedes cerrar esta página.',
+    'no_refresh_hint' => 'El proceso sigue en el servidor y lo retomas al volver desde este navegador.',
+    'reconnecting' => 'Sin conexión, reintentando...',
 
     // Aviso de DNS viejo
     'stale_dns_title' => 'Registros DNS antiguos detectados',
@@ -94,6 +92,7 @@ return [
     // Step 5: Éxito
     'step5_success_title' => 'Listo',
     'step5_expires_label' => 'Expira',
+    'step5_retention_note' => 'Descárgalo ahora: por seguridad se borra de nuestro servidor en 24 horas.',
     'step5_includes_label' => 'Incluye',
     'step5_includes_value' => 'Certificado, llave, cadena',
 

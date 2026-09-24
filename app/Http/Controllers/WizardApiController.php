@@ -7,21 +7,23 @@ use App\Models\CertificateRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use ZipArchive;
 
 class WizardApiController extends Controller
 {
     private const COOKIE_NAME = 'ssl_wizard_token';
+    private const COOKIE_MINUTES = 60 * 24 * 7; // 7 days
+
+    private const GENERATE_LIMIT_PER_HOUR = 5;
 
     /**
-     * Resolve session token from URL query param (?s=) or cookie
+     * Session token lives only in an httpOnly cookie (never in the URL)
      */
     private function getToken(): ?string
     {
-        return request()->query('s') ?: request()->cookie(self::COOKIE_NAME);
+        return request()->cookie(self::COOKIE_NAME);
     }
-
-    private const COOKIE_MINUTES = 60 * 24 * 7; // 7 days
 
     /**
      * Create a secure cookie for the session token
@@ -62,16 +64,17 @@ class WizardApiController extends Controller
             $sessionData = ['has_session' => true, 'data' => $full];
         }
 
-        $response = response()->view('wizard.app', [
+        return response()->view('wizard.app', [
             'wizardSession' => $sessionData,
         ]);
+    }
 
-        // Set cookie if token came from URL param (mirrors status() behavior)
-        if (request()->query('s') && $token && $sessionData) {
-            $response->withCookie($this->makeSecureCookie($token));
-        }
-
-        return $response;
+    /**
+     * Fresh CSRF token, so the frontend can recover after the Laravel session expired
+     */
+    public function csrf(): JsonResponse
+    {
+        return response()->json(['token' => csrf_token()]);
     }
 
     public function status(): JsonResponse
@@ -84,27 +87,17 @@ class WizardApiController extends Controller
             return response()->json(['has_session' => false]);
         }
 
-        $response = response()->json([
+        return response()->json([
             'has_session' => true,
             'data' => $this->formatRequestData($request)
         ]);
-
-        // Si el token viene de URL param, setear cookie para requests futuros
-        if (request()->query('s') && $token) {
-            $response->withCookie($this->makeSecureCookie($token));
-        }
-
-        return $response;
     }
 
     public function discard(): JsonResponse
     {
         $token = $this->getToken();
         if ($token) {
-            $existing = CertificateRequest::findByTokenAny($token);
-            if ($existing) {
-                $existing->delete();
-            }
+            CertificateRequest::where('session_token', $token)->delete();
         }
 
         return response()->json(['success' => true])
@@ -113,43 +106,31 @@ class WizardApiController extends Controller
 
     public function start(): JsonResponse
     {
-        // Delete any existing session (stops running jobs via cancellation detection)
-        // Only read from cookie — never delete based on URL param (prevents shared URL destruction)
-        $cookieToken = request()->cookie(self::COOKIE_NAME);
-        if ($cookieToken) {
-            CertificateRequest::where('session_token', $cookieToken)->delete();
+        // Delete any existing session (running jobs detect it and stop)
+        $token = $this->getToken();
+        if ($token) {
+            CertificateRequest::where('session_token', $token)->delete();
         }
 
         $certRequest = CertificateRequest::createNew();
 
-        return response()->json([
-            'success' => true,
-            'data' => ['session_token' => $certRequest->session_token],
-        ])->withCookie($this->makeSecureCookie($certRequest->session_token));
-    }
-
-    public function startFresh(): JsonResponse
-    {
-        // Delete any existing session (stops running jobs via cancellation detection)
-        // Only read from cookie — never delete based on URL param (prevents shared URL destruction)
-        $cookieToken = request()->cookie(self::COOKIE_NAME);
-        if ($cookieToken) {
-            CertificateRequest::where('session_token', $cookieToken)->delete();
-        }
-
-        $certRequest = CertificateRequest::createNew();
-
-        return response()->json([
-            'success' => true,
-            'data' => ['session_token' => $certRequest->session_token],
-        ])->withCookie($this->makeSecureCookie($certRequest->session_token));
+        return response()->json(['success' => true])
+            ->withCookie($this->makeSecureCookie($certRequest->session_token));
     }
 
     public function saveStep(Request $request, int $step): JsonResponse
     {
-        $certRequest = $this->getCertificateRequest();
+        $certRequest = $this->getCertificateRequest(allowFailed: true);
         if (!$certRequest) {
             return response()->json(['success' => false, 'error' => 'No session'], 401);
+        }
+
+        // Editing while a job runs would issue a certificate for data that no longer matches the record
+        if ($certRequest->status === 'in_progress' && $certRequest->isGenerating()) {
+            return response()->json([
+                'success' => false,
+                'errors' => ['server' => __('messages.errors.generation_in_progress')],
+            ], 409);
         }
 
         $rules = match ($step) {
@@ -157,18 +138,13 @@ class WizardApiController extends Controller
                 'domain' => 'required|string|max:255|regex:/^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/',
                 'is_wildcard' => 'boolean',
             ],
-            2 => ['email' => 'required|email|max:255'],
-            3 => ['challenge_type' => 'required|in:http,dns'],
-            default => [],
+            2 => ['challenge_type' => 'required|in:http,dns'],
         };
 
         $messages = [
             'domain.required' => __('messages.validation.domain_required'),
             'domain.regex' => __('validation.custom.domain.regex'),
             'domain.max' => __('validation.max.string', ['attribute' => __('validation.attributes.domain'), 'max' => 255]),
-            'email.required' => __('messages.validation.email_required'),
-            'email.email' => __('messages.validation.email_invalid'),
-            'email.max' => __('validation.max.string', ['attribute' => __('validation.attributes.email'), 'max' => 255]),
             'challenge_type.required' => __('messages.validation.challenge_type_required'),
             'challenge_type.in' => __('messages.validation.challenge_type_invalid'),
         ];
@@ -190,15 +166,21 @@ class WizardApiController extends Controller
         }
 
         // Wildcard certificates always require DNS challenge
-        if ($step === 3 && $certRequest->is_wildcard && ($validated['challenge_type'] ?? '') === 'http') {
+        if ($step === 2 && $certRequest->is_wildcard && ($validated['challenge_type'] ?? '') === 'http') {
             return response()->json([
                 'success' => false,
                 'errors' => ['challenge_type' => __('messages.validation.wildcard_requires_dns', [], 'Wildcard certificates require DNS verification.')],
             ], 422);
         }
 
+        // Going back to fix something after a failure reopens the request
+        $reopen = $certRequest->status === 'failed'
+            ? ['status' => 'in_progress', 'error_message' => null, 'challenge_token' => null, 'challenge_filename' => null]
+            : [];
+
         $certRequest->update([
             ...$validated,
+            ...$reopen,
             'current_step' => $step + 1
         ]);
 
@@ -215,8 +197,16 @@ class WizardApiController extends Controller
             return response()->json(['success' => false, 'error' => 'No session'], 401);
         }
 
+        $rateKey = 'generate:' . request()->ip();
+        if (RateLimiter::tooManyAttempts($rateKey, self::GENERATE_LIMIT_PER_HOUR)) {
+            return response()->json([
+                'success' => false,
+                'errors' => ['rate_limit' => __('messages.rate_limit.generate')],
+            ], 429);
+        }
+
         // Atomic check-and-lock inside a transaction
-        $certRequest = DB::transaction(function () use ($token) {
+        $result = DB::transaction(function () use ($token) {
             $certRequest = CertificateRequest::where('session_token', $token)
                 ->whereIn('status', ['in_progress', 'failed'])
                 ->lockForUpdate()
@@ -226,36 +216,52 @@ class WizardApiController extends Controller
                 return null;
             }
 
-            if ($certRequest->isGenerating()) {
+            if ($certRequest->status === 'in_progress' && $certRequest->isGenerating()) {
                 return 'already_generating';
+            }
+
+            if (!$certRequest->domain || !$certRequest->challenge_type) {
+                return 'incomplete';
+            }
+
+            if (CertificateRequest::activeGenerationsCount() >= (int) config('services.acme.max_concurrent')) {
+                return 'busy';
             }
 
             if ($certRequest->status === 'failed') {
                 $certRequest->resetForRetry();
             }
 
-            $certRequest->lockGeneration();
-            return $certRequest;
+            $attempt = $certRequest->lockGeneration();
+            return [$certRequest, $attempt];
         });
 
-        if ($certRequest === null) {
+        if ($result === null) {
             return response()->json(['success' => false, 'error' => 'No session'], 401);
         }
 
-        if ($certRequest === 'already_generating') {
+        if ($result === 'already_generating') {
             return response()->json([
                 'success' => false,
                 'errors' => ['verification' => __('messages.errors.generation_in_progress')],
             ], 409);
         }
 
-        // Validate all required fields are present before dispatching
-        if (!$certRequest->domain || !$certRequest->email || !$certRequest->challenge_type) {
-            $certRequest->unlockGeneration();
+        if ($result === 'incomplete') {
             return response()->json(['success' => false, 'error' => 'Incomplete request'], 400);
         }
 
-        GenerateCertificate::dispatch($certRequest->id);
+        if ($result === 'busy') {
+            return response()->json([
+                'success' => false,
+                'errors' => ['server' => __('messages.errors.server_busy')],
+            ], 503);
+        }
+
+        [$certRequest, $attempt] = $result;
+
+        RateLimiter::hit($rateKey, 3600);
+        GenerateCertificate::dispatch($certRequest->id, $attempt);
 
         return response()->json([
             'success' => true,
@@ -274,7 +280,7 @@ class WizardApiController extends Controller
             return response()->json(['success' => false, 'error' => 'No session'], 401);
         }
 
-        // Detect stale generation (queue worker crashed)
+        // Detect stale generation (worker crashed, killed by timeout, or job never picked up)
         if ($certRequest->status === 'in_progress'
             && $certRequest->generation_started_at
             && !$certRequest->isGenerating()
@@ -298,15 +304,17 @@ class WizardApiController extends Controller
             return redirect('/');
         }
 
-        $zipFileName = storage_path("app/temp/{$certRequest->domain}-ssl.zip");
-        $tempDir = dirname($zipFileName);
-
+        $tempDir = storage_path('app/temp');
         if (!is_dir($tempDir)) {
             mkdir($tempDir, 0700, true);
         }
 
+        // Unique file per request: concurrent downloads must not overwrite or delete each other
+        $zipFileName = tempnam($tempDir, 'ssl');
+
         $zip = new ZipArchive();
-        if ($zip->open($zipFileName, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+        if ($zip->open($zipFileName, ZipArchive::OVERWRITE) !== true) {
+            @unlink($zipFileName);
             return response()->json(['error' => __('messages.errors.zip_error')], 500);
         }
 
@@ -328,11 +336,9 @@ class WizardApiController extends Controller
     private function formatRequestData(CertificateRequest $request): array
     {
         $data = [
-            'session_token' => $request->session_token,
             'domain' => $request->domain,
             'is_wildcard' => $request->is_wildcard ?? false,
             'display_domain' => $request->getDisplayDomain(),
-            'email' => $request->email,
             'challenge_type' => $request->challenge_type ?? 'http',
             'challenge_token' => $request->challenge_token,
             'challenge_filename' => $request->challenge_filename,

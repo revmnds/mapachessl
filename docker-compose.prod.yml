@@ -22,6 +22,7 @@ services:
       - LOG_STACK=single
       - LOG_LEVEL=error
       - ACME_STAGING=false
+      - ACME_MAX_CONCURRENT=${QUEUE_WORKERS:-4}
     volumes:
       - public:/var/www/html/public
       - storage:/var/www/html/storage
@@ -32,9 +33,11 @@ services:
 
   queue:
     image: mapachessl:latest
-    container_name: mapachessl-queue
     restart: unless-stopped
-    command: php artisan queue:work --sleep=3 --tries=1 --timeout=3700
+    # Each generation can hold a worker for up to an hour while the user sets up DNS/HTTP
+    command: php artisan queue:work --sleep=3 --tries=1 --timeout=3900
+    deploy:
+      replicas: ${QUEUE_WORKERS:-4}
     environment:
       - APP_NAME=MapacheSSL
       - APP_ENV=production
@@ -51,6 +54,7 @@ services:
       - LOG_STACK=single
       - LOG_LEVEL=error
       - ACME_STAGING=false
+      - ACME_MAX_CONCURRENT=${QUEUE_WORKERS:-4}
     volumes:
       - storage:/var/www/html/storage
       - cache:/var/www/html/bootstrap/cache

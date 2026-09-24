@@ -20,10 +20,10 @@ Route::get('/download', [WizardApiController::class, 'download']);
 // API endpoints — global rate limit per IP (anti-bot, not anti-user)
 Route::prefix('api/wizard')->middleware('throttle:60,1')->group(function () {
     Route::get('/status', [WizardApiController::class, 'status']);
+    Route::get('/csrf', [WizardApiController::class, 'csrf']);
     Route::post('/start', [WizardApiController::class, 'start']);
-    Route::post('/start-fresh', [WizardApiController::class, 'startFresh']);
     Route::post('/discard', [WizardApiController::class, 'discard']);
-    Route::post('/step/{step}', [WizardApiController::class, 'saveStep'])->where('step', '[1-4]');
+    Route::post('/step/{step}', [WizardApiController::class, 'saveStep'])->where('step', '[1-2]');
     Route::post('/generate', [WizardApiController::class, 'generate']);
     Route::get('/poll-tokens', [WizardApiController::class, 'pollTokens'])->withoutMiddleware('throttle:60,1');
 });

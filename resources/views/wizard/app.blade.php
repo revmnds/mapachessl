@@ -10,8 +10,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js" integrity="sha384-9Ax3MmS9AClxJyd5/zafcXXjxmwFhZCdsT6HJoJjarvCaAkJlk5QDzjLJm+Wdx5F" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" integrity="sha384-Rv68Y7adOjMMJc1/xFMcdNvXre/HF51to4GZjBALmXr7ABnVl5V4UajJwBu7zbhN" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js" integrity="sha384-oHYQNeDBTZNj6KnIfJMAzcEn2OTbeMKKXFeEwU6T+pH0oS1yTIzEBaW6BXmCtvs2" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" integrity="sha384-sPwMflxqfAN+Q5mvlkLmHiX3PORGbZSXHiSGPTXT9VHCD/AB+b+r+vJWsqprv+7k" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js" integrity="sha384-qzrow8+R9k2/XKVt7fpdI3hp6ocDhtrCzBsdbcw7/VRkwEXYcsTTAEeFvhlgiGBW" crossorigin="anonymous"></script>
     <script>
         window.translations = @json(__('wizard'));
         window.messages = @json(__('messages'));
@@ -38,8 +38,8 @@
                      waitingForDns = true;
                      generating = true;
                  }
-                 const st = (s.data.status === 'completed' || s.data.status === 'failed') ? 5
-                     : (s.data.is_generating || s.data.challenge_token) ? 4
+                 const st = (s.data.status === 'completed' || s.data.status === 'failed') ? 4
+                     : (s.data.is_generating || s.data.challenge_token) ? 3
                      : (s.data.current_step || 1);
                  step = st;
                  visibleStep = st;
@@ -118,53 +118,14 @@
                 </div>
             </template>
 
-            {{-- Step 2: Email --}}
+            {{-- Step 2: Method --}}
             <template x-if="visibleStep === 2">
-                <div class="space-y-6 animate-step" x-init="$nextTick(() => $refs.emailInput.focus())">
-                    <div class="space-y-2">
-                        <h2 class="text-xl font-semibold text-gray-900 tracking-tight">{{ __('wizard.step2_title') }}</h2>
-                        <p class="text-sm text-gray-500">{{ __('wizard.step2_subtitle') }}</p>
-                    </div>
-                    <form @submit.prevent="saveStep(2)" class="space-y-6">
-                        <div class="space-y-2">
-                            <input type="email"
-                                   x-ref="emailInput"
-                                   x-model="data.email"
-                                   placeholder="{{ __('wizard.step2_placeholder') }}"
-                                   autocomplete="email"
-                                   class="w-full border border-gray-200 rounded-lg px-4 py-3 text-gray-900
-                                          placeholder-gray-400 focus:border-gray-900 focus:outline-none transition-colors"
-                                   :class="errors.email ? 'border-gray-500' : ''">
-                            <p x-show="errors.email" x-text="errors.email" class="text-gray-500 text-sm"></p>
-                            <p x-show="errors.server" x-text="errors.server" class="text-red-500 text-sm"></p>
-                        </div>
-                        <div class="flex gap-3">
-                            <button type="button" @click="goBack()"
-                                    :disabled="loading"
-                                    class="flex-1 border border-gray-200 text-gray-600 py-3 px-6 rounded-lg font-medium
-                                           hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-50">
-                                {{ __('wizard.btn_back') }}
-                            </button>
-                            <button type="submit"
-                                    :disabled="loading"
-                                    class="flex-1 bg-gray-900 text-white py-3 px-6 rounded-lg font-medium
-                                           hover:bg-gray-800 transition-colors cursor-pointer disabled:opacity-50">
-                                <span x-show="!loading">{{ __('wizard.btn_continue') }}</span>
-                                <span x-show="loading">{{ __('wizard.btn_saving') }}</span>
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </template>
-
-            {{-- Step 3: Method --}}
-            <template x-if="visibleStep === 3">
                 <div class="space-y-6 animate-step" x-init="$nextTick(() => { if (data.is_wildcard) { data.challenge_type = 'dns'; } $refs.dnsOption?.focus() || $refs.httpOption?.focus(); })">
                     <div class="space-y-2">
                         <h2 class="text-xl font-semibold text-gray-900 tracking-tight">{{ __('wizard.step3_title') }}</h2>
                         <p class="text-sm text-gray-500" x-text="data.is_wildcard ? '{{ __('wizard.step3_subtitle_wildcard') }}' : '{{ __('wizard.step3_subtitle_normal') }}'"></p>
                     </div>
-                    <form @submit.prevent="saveStep(3)" class="space-y-6">
+                    <form @submit.prevent="saveStep(2)" class="space-y-6">
                         <div class="space-y-3" role="radiogroup" @keydown.arrow-down.prevent="if (!data.is_wildcard) { data.challenge_type = 'dns'; $refs.dnsOption.focus(); }" @keydown.arrow-up.prevent="if (!data.is_wildcard) { data.challenge_type = 'http'; $refs.httpOption.focus(); }">
                             {{-- HTTP option - hidden for wildcard --}}
                             <label class="block cursor-pointer" :class="data.is_wildcard ? 'hidden' : ''">
@@ -222,8 +183,8 @@
                 </div>
             </template>
 
-            {{-- Step 4: Verification --}}
-            <template x-if="visibleStep === 4">
+            {{-- Step 3: Verification --}}
+            <template x-if="visibleStep === 3">
                 <div class="space-y-6 animate-step" x-init="$nextTick(() => $refs.generateBtn?.focus())">
                     {{-- Before generating: show instructions --}}
                     <template x-if="!waitingForDns && !data.challenge_token">
@@ -422,6 +383,11 @@
                         <p class="mt-1" x-text="Array.isArray(errors.verification) ? errors.verification[0] : errors.verification"></p>
                     </div>
 
+                    <div x-show="errors.server" class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-600" x-text="errors.server"></div>
+
+                    {{-- Connection lost while polling: keeps retrying in the background --}}
+                    <p x-show="reconnecting" x-cloak class="text-xs text-gray-500 text-center">{{ __('wizard.reconnecting') }}</p>
+
                     {{-- Rate limit error --}}
                     <div x-show="errors.rate_limit" class="rounded-lg p-3 text-sm bg-gray-100 border border-gray-200 text-gray-600">
                         <p class="font-medium text-gray-700">{{ __('messages.rate_limit.title') }}</p>
@@ -474,8 +440,8 @@
                 </div>
             </template>
 
-            {{-- Step 5: Result - Success --}}
-            <template x-if="visibleStep === 5 && data.status === 'completed'">
+            {{-- Step 4: Result - Success --}}
+            <template x-if="visibleStep === 4 && data.status === 'completed'">
                 <div class="space-y-6 animate-step" x-init="$nextTick(() => { celebrate(); certTab = 'fullchain'; })">
                     <div class="text-center space-y-2">
                         <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto">
@@ -546,9 +512,11 @@
                         </div>
                     </div>
 
+                    <p class="text-xs text-gray-500 text-center">{{ __('wizard.step5_retention_note') }}</p>
+
                     {{-- Action buttons --}}
                     <div class="flex gap-3">
-                        <a :href="'/download' + (data.session_token ? '?s=' + data.session_token : '')"
+                        <a href="/download"
                            class="flex-1 bg-gray-900 text-white py-3 px-6 rounded-lg font-medium text-center
                                   hover:bg-gray-800 transition-colors">
                             {{ __('wizard.btn_download_zip') }}
@@ -562,8 +530,8 @@
                 </div>
             </template>
 
-            {{-- Step 5: Result - Error --}}
-            <template x-if="visibleStep === 5 && data.status === 'failed'">
+            {{-- Step 4: Result - Error --}}
+            <template x-if="visibleStep === 4 && data.status === 'failed'">
                 <div class="space-y-6 animate-step">
                     <div class="text-center space-y-2">
                         <div class="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center mx-auto">
@@ -600,7 +568,6 @@
                         {{ __('wizard.btn_new_certificate') }}
                     </button>
                     <div class="flex items-center gap-2">
-                        <div class="step-dot w-1.5 h-1.5 rounded-full bg-gray-300 transition-all duration-300"></div>
                         <div class="step-dot w-1.5 h-1.5 rounded-full bg-gray-300 transition-all duration-300"></div>
                         <div class="step-dot w-1.5 h-1.5 rounded-full bg-gray-300 transition-all duration-300"></div>
                         <div class="step-dot w-1.5 h-1.5 rounded-full bg-gray-300 transition-all duration-300"></div>

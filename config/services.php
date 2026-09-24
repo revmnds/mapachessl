@@ -39,6 +39,8 @@ return [
         // Use staging environment for testing (doesn't count against rate limits)
         // Set to false for production certificates
         'staging' => env('ACME_STAGING', true),
+        // Max generations running or queued at once; keep it at or below the number of queue workers
+        'max_concurrent' => (int) env('ACME_MAX_CONCURRENT', 4),
     ],
 
 ];

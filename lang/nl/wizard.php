@@ -26,9 +26,6 @@ return [
     'step1_wildcard_hint' => '(vereist DNS)',
 
     // Step 2: Email
-    'step2_title' => 'Jouw e-mail',
-    'step2_subtitle' => 'Om je te waarschuwen voordat het verloopt',
-    'step2_placeholder' => 'jij@email.nl',
 
     // Step 3: Verification
     'step3_title' => 'Verificatie',
@@ -77,8 +74,9 @@ return [
     'verification_waiting_http' => 'Upload het bestand naar je server. Het systeem zal automatisch verifiëren.',
 
     // No refresh warning
-    'no_refresh_warning' => 'Vernieuw de pagina niet',
-    'no_refresh_hint' => 'anders wordt het proces opnieuw gestart',
+    'no_refresh_warning' => 'Je kunt deze pagina sluiten.',
+    'no_refresh_hint' => 'Het proces loopt door op de server en je kunt later verder in deze browser.',
+    'reconnecting' => 'Geen verbinding, opnieuw proberen...',
 
     // Stale DNS warning
     'stale_dns_title' => 'Oude DNS-records gedetecteerd',
@@ -88,6 +86,7 @@ return [
     // Step 5: Success
     'step5_success_title' => 'Klaar',
     'step5_expires_label' => 'Verloopt',
+    'step5_retention_note' => 'Download het nu: om veiligheidsredenen wordt het na 24 uur van onze server verwijderd.',
     'step5_includes_label' => 'Bevat',
     'step5_includes_value' => 'Certificaat, sleutel, keten',
 
