@@ -14,3 +14,6 @@ bootstrap/cache/*
 .vscode
 *.md
 docker-compose.override.yml
+database/*.sqlite*
+.playwright-mcp
+*.png

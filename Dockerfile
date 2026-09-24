@@ -7,8 +7,15 @@ COPY resources ./resources
 COPY vite.config.js ./
 RUN npm run build
 
-# Stage 2: PHP application
-FROM php:8.4-fpm-alpine
+# Stage 2: nginx with this version's public/ baked in (production, see docker-compose.gitops.yml).
+# Declared before the PHP stage so a plain `docker build` still produces the app image.
+FROM nginx:alpine AS web
+COPY public /var/www/html/public
+COPY --from=frontend /app/public/build /var/www/html/public/build
+COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
+
+# Stage 3: PHP application
+FROM php:8.4-fpm-alpine AS runtime
 
 # Install system dependencies
 RUN apk add --no-cache \

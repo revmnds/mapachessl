@@ -26,6 +26,12 @@ Open <http://localhost:8080>.
 
 Local dev without Docker: `composer install && npm install && composer dev`.
 
+## Production (Portainer GitOps)
+
+`docker-compose.gitops.yml` is the production stack. In Portainer: *Stacks > Add stack > Repository* with `https://github.com/revmnds/mapachessl`, reference `refs/heads/main`, compose path `docker-compose.gitops.yml`, GitOps updates on. Set `APP_KEY` and `DB_PASSWORD` as stack environment variables. Every push to `main` rebuilds and redeploys.
+
+Nothing is published on the host: Nginx Proxy Manager reaches the `web` service on the external `npm` network as `mapachessl-nginx:80`.
+
 ## Configuration
 
 In `.env`:
