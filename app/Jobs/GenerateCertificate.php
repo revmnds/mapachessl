@@ -34,7 +34,18 @@ class GenerateCertificate implements ShouldQueue
             return;
         }
 
-        $certRequest->update(['job_started_at' => now()]);
+        // Its turn came but the visitor closed the page while waiting in line
+        if ($certRequest->hasLeftLine()) {
+            $certRequest->markAsFailed(__('messages.errors.queue_abandoned'));
+            Log::info('GenerateCertificate job: visitor left the line, skipping', ['id' => $this->certRequestId]);
+            return;
+        }
+
+        $certRequest->update(['job_started_at' => now(), 'heartbeat_at' => now()]);
+
+        $acme->setHeartbeat(fn () => CertificateRequest::where('id', $this->certRequestId)
+            ->where('generation_attempt', $this->attempt)
+            ->update(['heartbeat_at' => now()]));
 
         Log::info('GenerateCertificate job: starting', ['domain' => $certRequest->domain]);
 
@@ -50,7 +61,9 @@ class GenerateCertificate implements ShouldQueue
             CertificateRequest::where('id', $this->certRequestId)
                 ->where('generation_attempt', $this->attempt)
                 ->update(['challenge_token' => null, 'challenge_filename' => null]);
-            $acme = new AcmeService();
+            $acme = (new AcmeService())->setHeartbeat(fn () => CertificateRequest::where('id', $this->certRequestId)
+                ->where('generation_attempt', $this->attempt)
+                ->update(['heartbeat_at' => now()]));
             $result = $acme->generateCertificate($certRequest, $this->attempt, $deadline, forceNewAuth: true);
         }
 

@@ -722,6 +722,18 @@ export function wizard() {
             }, 250);
         },
 
+        inLine() {
+            return Number.isInteger(this.data.queue_position);
+        },
+
+        queueText() {
+            const t = window.translations || {};
+            const n = this.data.queue_position;
+            if (n === 0) return t.queue_next || "You're next in line.";
+            if (n === 1) return t.queue_ahead_one || 'There is 1 person ahead of you in line.';
+            return (t.queue_ahead_many || 'There are :count people ahead of you in line.').replace(':count', n);
+        },
+
         getDnsTokens() {
             if (!this.data.challenge_token) return [];
             return this.data.challenge_token.split('\n').filter(t => t.trim());

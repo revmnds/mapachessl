@@ -9,7 +9,7 @@
 # Secrets are NOT stored here; set them as stack environment variables:
 #   APP_KEY      required  (php artisan key:generate --show)
 #   DB_PASSWORD  required
-#   Optional: APP_URL, QUEUE_WORKERS, ACME_MAX_CONCURRENT, LOG_LEVEL
+#   Optional: APP_URL, QUEUE_WORKERS, ACME_MAX_QUEUE, LOG_LEVEL
 #
 # Nothing is published on the host. Nginx Proxy Manager reaches the `web`
 # service through the external `npm` network as mapachessl-nginx:80; TLS is
@@ -42,7 +42,8 @@ x-app-env: &app-env
   QUEUE_CONNECTION: database
 
   ACME_STAGING: "false"
-  ACME_MAX_CONCURRENT: ${ACME_MAX_CONCURRENT:-4}
+  QUEUE_WORKERS: ${QUEUE_WORKERS:-20}
+  ACME_MAX_QUEUE: ${ACME_MAX_QUEUE:-50}
 
 x-app-build: &app-build
   build:
@@ -92,7 +93,8 @@ services:
     # Each generation can hold a worker for up to an hour while the user sets up DNS/HTTP
     command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=1", "--timeout=3900"]
     deploy:
-      replicas: ${QUEUE_WORKERS:-4}
+      # ~30 MB each, idle most of the time while users set up DNS
+      replicas: ${QUEUE_WORKERS:-20}
     environment:
       <<: *app-env
     volumes:

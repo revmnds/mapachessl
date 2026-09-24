@@ -77,6 +77,10 @@ return [
     'no_refresh_warning' => 'Je kunt deze pagina sluiten.',
     'no_refresh_hint' => 'Het proces loopt door op de server en je kunt later verder in deze browser.',
     'reconnecting' => 'Geen verbinding, opnieuw proberen...',
+    'queue_next' => 'Je bent de volgende in de rij.',
+    'queue_ahead_one' => 'Er staat 1 persoon voor je in de rij.',
+    'queue_ahead_many' => 'Er staan :count personen voor je in de rij.',
+    'queue_keep_open' => 'Houd deze pagina open om je plek te behouden.',
 
     // Stale DNS warning
     'stale_dns_title' => 'Oude DNS-records gedetecteerd',

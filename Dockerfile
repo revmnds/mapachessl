@@ -70,6 +70,9 @@ RUN mkdir -p storage/app/acme \
     && chown -R www-data:www-data storage bootstrap/cache database \
     && chmod -R 775 storage bootstrap/cache database
 
+# PHP-FPM pool sizing
+COPY docker/php/fpm-pool.conf /usr/local/etc/php-fpm.d/zz-mapachessl.conf
+
 # Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

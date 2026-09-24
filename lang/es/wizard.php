@@ -83,6 +83,10 @@ return [
     'no_refresh_warning' => 'Puedes cerrar esta página.',
     'no_refresh_hint' => 'El proceso sigue en el servidor y lo retomas al volver desde este navegador.',
     'reconnecting' => 'Sin conexión, reintentando...',
+    'queue_next' => 'Eres el siguiente en la fila.',
+    'queue_ahead_one' => 'Hay 1 persona antes que tú en la fila.',
+    'queue_ahead_many' => 'Hay :count personas antes que tú en la fila.',
+    'queue_keep_open' => 'Mantén esta página abierta para no perder tu lugar.',
 
     // Aviso de DNS viejo
     'stale_dns_title' => 'Registros DNS antiguos detectados',

@@ -77,6 +77,10 @@ return [
     'no_refresh_warning' => 'You can close this page.',
     'no_refresh_hint' => 'The process keeps running on the server and you can pick it up again from this browser.',
     'reconnecting' => 'Connection lost, retrying...',
+    'queue_next' => 'You\'re next in line.',
+    'queue_ahead_one' => 'There is 1 person ahead of you in line.',
+    'queue_ahead_many' => 'There are :count people ahead of you in line.',
+    'queue_keep_open' => 'Keep this page open to hold your place.',
 
     // Stale DNS warning
     'stale_dns_title' => 'Old DNS records detected',

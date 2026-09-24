@@ -12,6 +12,7 @@ class AcmeService
     private ACMECert $client;
     private string $accountKeyPath;
     private bool $staging;
+    private ?\Closure $heartbeat = null;
 
     // Polling configuration
     private const MAX_WAIT_TIME = 1800; // 30 minutes max wait
@@ -30,6 +31,23 @@ class AcmeService
 
         // Initialize client (true = live, false = staging)
         $this->client = new ACMECert(!$this->staging);
+    }
+
+    /**
+     * Called periodically while waiting, so the app can tell a live job from a killed one
+     */
+    public function setHeartbeat(\Closure $heartbeat): static
+    {
+        $this->heartbeat = $heartbeat;
+
+        return $this;
+    }
+
+    private function beat(): void
+    {
+        if ($this->heartbeat) {
+            ($this->heartbeat)();
+        }
     }
 
     /**
@@ -179,6 +197,8 @@ class AcmeService
 
                 $allVerified = false;
                 while ((time() - $startTime) < $maxWait) {
+                    $service->beat();
+
                     // Check cancellation (deleted, marked failed, or superseded by a new attempt)
                     $fresh = CertificateRequest::find($request->id);
                     if (!$fresh || !$fresh->isCurrentAttempt($attempt)) {
@@ -399,6 +419,7 @@ class AcmeService
         $startTime = time();
 
         while ((time() - $startTime) < self::PROPAGATION_MAX_WAIT) {
+            $this->beat();
             $publicRecords = $this->queryDnsOverHttps($record);
 
             if (!empty($publicRecords)) {

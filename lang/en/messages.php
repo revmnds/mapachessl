@@ -42,6 +42,7 @@ return [
         'authorization_stale' => 'The previous attempt left a pending authorization at Let\'s Encrypt. Wait a few minutes and start a new request.',
         'generation_stale' => 'The generation was unexpectedly interrupted. Please start a new request.',
         'server_busy' => 'There are too many requests in progress right now. Please try again in a few minutes.',
+        'queue_abandoned' => 'You lost your place in line because the page was closed while waiting. Please try again.',
         'stale_dns_records' => 'Old DNS TXT records from a previous attempt were found at _acme-challenge. Delete them from your DNS provider before retrying.',
         'generic_error' => 'Error completing the process: :error',
         'internal_error' => 'An unexpected error occurred while generating the certificate. Please try again in a few minutes.',

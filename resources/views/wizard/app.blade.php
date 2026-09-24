@@ -221,10 +221,21 @@
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
-                                <p class="text-sm text-gray-500 transition-opacity duration-300" x-text="currentStatusPhrase || '{{ __('wizard.step4_getting_tokens') }}'"></p>
-                                <p class="text-xs text-gray-400">
-                                    <strong>{{ __('wizard.no_refresh_warning') }}</strong> {{ __('wizard.no_refresh_hint') }}
-                                </p>
+                                {{-- All workers busy: waiting in line --}}
+                                <template x-if="inLine()">
+                                    <div class="space-y-1">
+                                        <p class="text-sm font-medium text-gray-700" x-text="queueText()"></p>
+                                        <p class="text-xs text-gray-400">{{ __('wizard.queue_keep_open') }}</p>
+                                    </div>
+                                </template>
+                                <template x-if="!inLine()">
+                                    <div class="space-y-3">
+                                        <p class="text-sm text-gray-500 transition-opacity duration-300" x-text="currentStatusPhrase || '{{ __('wizard.step4_getting_tokens') }}'"></p>
+                                        <p class="text-xs text-gray-400">
+                                            <strong>{{ __('wizard.no_refresh_warning') }}</strong> {{ __('wizard.no_refresh_hint') }}
+                                        </p>
+                                    </div>
+                                </template>
                             </div>
                         </div>
                     </template>

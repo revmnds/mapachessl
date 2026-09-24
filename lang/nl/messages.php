@@ -42,6 +42,7 @@ return [
         'authorization_stale' => 'De vorige poging heeft een autorisatie achtergelaten bij Let\'s Encrypt. Wacht een paar minuten en start een nieuw verzoek.',
         'generation_stale' => 'De generatie werd onverwacht onderbroken. Start een nieuw verzoek.',
         'server_busy' => 'Er lopen op dit moment te veel aanvragen. Probeer het over een paar minuten opnieuw.',
+        'queue_abandoned' => 'Je bent je plek in de rij kwijt omdat de pagina tijdens het wachten werd gesloten. Probeer het opnieuw.',
         'stale_dns_records' => 'Er zijn oude DNS TXT-records van een vorige poging gevonden bij _acme-challenge. Verwijder ze bij je DNS-provider voordat je het opnieuw probeert.',
         'generic_error' => 'Fout bij het voltooien van het proces: :error',
         'internal_error' => 'Er is een onverwachte fout opgetreden bij het genereren van het certificaat. Probeer het over een paar minuten opnieuw.',

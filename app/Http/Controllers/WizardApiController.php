@@ -224,13 +224,17 @@ class WizardApiController extends Controller
                 return 'incomplete';
             }
 
-            // Serialize the capacity check across sessions (row locks only cover this request);
+            // Serialize the line-length check across sessions (row locks only cover this request);
             // released automatically at commit
             if (DB::getDriverName() === 'pgsql') {
                 DB::statement('SELECT pg_advisory_xact_lock(?)', [crc32('acme-generation-capacity')]);
             }
 
-            if (CertificateRequest::activeGenerationsCount() >= (int) config('services.acme.max_concurrent')) {
+            // Busy workers don't reject anyone: the job waits in line. Only a full line does.
+            // Counted as running + waiting against workers + line, so a burst of clicks while
+            // workers are free (none picked up yet) isn't mistaken for a full line.
+            $capacity = (int) config('services.acme.workers') + (int) config('services.acme.max_queue');
+            if (CertificateRequest::runningCount() + CertificateRequest::waitingInLine()->count() >= $capacity) {
                 return 'busy';
             }
 
@@ -286,13 +290,19 @@ class WizardApiController extends Controller
             return response()->json(['success' => false, 'error' => 'No session'], 401);
         }
 
-        // Detect stale generation (worker crashed, killed by timeout, or job never picked up)
+        // Detect stale generation: worker crashed or timed out, or the visitor left the line
         if ($certRequest->status === 'in_progress'
             && $certRequest->generation_started_at
             && !$certRequest->isGenerating()
         ) {
-            $certRequest->markAsFailed(__('messages.errors.generation_stale'));
+            $certRequest->markAsFailed($certRequest->isWaitingInLine()
+                ? __('messages.errors.queue_abandoned')
+                : __('messages.errors.generation_stale'));
             $certRequest->refresh();
+        }
+
+        if ($certRequest->status === 'in_progress') {
+            $certRequest->touchLastSeen();
         }
 
         return response()->json([
@@ -351,6 +361,7 @@ class WizardApiController extends Controller
             'current_step' => $request->current_step,
             'status' => $request->status,
             'is_generating' => $request->isGenerating(),
+            'queue_position' => $request->linePosition(),
             'error_message' => $request->error_message,
             'expires_at' => $request->expires_at?->format('d/m/Y'),
         ];

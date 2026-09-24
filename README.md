@@ -38,7 +38,8 @@ In `.env`:
 
 - `ACME_STAGING` — `true` for testing against Let's Encrypt staging (no rate limits, untrusted certs).
 - `DB_*` — PostgreSQL credentials (`DB_PASSWORD` is required in production).
-- `QUEUE_WORKERS` / `ACME_MAX_CONCURRENT` — parallel generations.
+- `QUEUE_WORKERS` — generations running at once (production default 20). When all are busy, users wait in line and see their position.
+- `ACME_MAX_QUEUE` — max people waiting in line (default 50); beyond that they're asked to come back later.
 - `TRUSTED_PROXIES` — overrides `bootstrap/trusted-proxies.php` (private networks + Cloudflare).
 
 ## Notes
