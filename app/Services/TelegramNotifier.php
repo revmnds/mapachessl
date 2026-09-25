@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\CertificateRequest;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -97,6 +96,11 @@ class TelegramNotifier
 
     public function exception(\Throwable $e): void
     {
+        // Redeploys restart Postgres under running workers: only alert when it stays unreachable
+        if ($this->isDatabaseDown($e) && !$this->lasted('database-down', 90)) {
+            return;
+        }
+
         $where = str_replace(base_path() . '/', '', $e->getFile()) . ':' . $e->getLine();
         $context = app()->runningInConsole()
             ? 'artisan ' . ($_SERVER['argv'][1] ?? '')
@@ -133,18 +137,52 @@ class TelegramNotifier
         return $seconds < 60 ? "{$seconds} s" : intdiv($seconds, 60) . ' min';
     }
 
+    /**
+     * Connection failures (SQLSTATE class 08) and Postgres shutting down (57P0x)
+     */
+    private function isDatabaseDown(\Throwable $e): bool
+    {
+        return $e instanceof \PDOException && preg_match('/^(08|57P0)/', (string) $e->getCode());
+    }
+
+    /**
+     * Whether a recurring condition has lasted $seconds; it starts over after going quiet as long
+     */
+    private function lasted(string $key, int $seconds): bool
+    {
+        $file = $this->stateFile("since-{$key}");
+        clearstatcache(true, $file);
+
+        if ((int) @filemtime($file) < time() - $seconds) {
+            @file_put_contents($file, time());
+            @chmod($file, 0666);
+            return false;
+        }
+
+        @touch($file);
+        return (int) @file_get_contents($file) <= time() - $seconds;
+    }
+
     private function claim(string $key, int $seconds): bool
     {
-        try {
-            return Cache::add("telegram:throttle:{$key}", true, $seconds);
-        } catch (\Throwable) {
-            // The cache lives in the database: if that's what is down, throttle per container
-            $file = sys_get_temp_dir() . '/telegram-throttle-' . md5($key);
-            if (@filemtime($file) > time() - $seconds) {
-                return false;
-            }
-            @touch($file);
-            return true;
+        $file = $this->stateFile('throttle-' . md5($key));
+        clearstatcache(true, $file);
+
+        if ((int) @filemtime($file) > time() - $seconds) {
+            return false;
         }
+
+        @touch($file);
+        @chmod($file, 0666);
+        return true;
+    }
+
+    /**
+     * Files in the storage volume shared by app, queue and scheduler, not the cache: alerts matter
+     * most when the database is down. World-writable because workers run as root and php-fpm doesn't.
+     */
+    private function stateFile(string $name): string
+    {
+        return storage_path("framework/cache/telegram-{$name}");
     }
 }
