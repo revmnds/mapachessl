@@ -524,7 +524,7 @@
 
                         {{-- Certificate content --}}
                         <div class="relative">
-                            <pre class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs font-mono text-gray-700 overflow-x-auto max-h-40 whitespace-pre-wrap break-all select-all cursor-text" tabindex="0" x-text="getCertContent()"></pre>
+                            <pre class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs font-mono text-gray-700 overflow-x-auto max-h-40 whitespace-pre-wrap break-all cursor-text" tabindex="0" x-text="getCertContent()"></pre>
                             <button type="button" @click="copyCert()"
                                     class="absolute top-2 right-2 text-gray-400 hover:text-gray-600 cursor-pointer transition-all duration-200"
                                     :class="{ 'text-gray-900 scale-110': copiedField === 'cert-' + certTab }">

@@ -303,89 +303,64 @@ export function wizard() {
 
         getVerificationPhrases() {
             const t = window.translations || {};
-            return [
+            const common = [
                 t.status_still_checking || 'Still checking...',
-                t.status_patience_virtue || 'Patience is a virtue...',
-                t.status_still_on_it || 'Still on it...',
-                t.status_dns_takes_time || 'DNS can be slow, hang tight...',
-                t.status_keep_waiting || 'We keep validating...',
-                t.status_no_worries || 'No worries, this is normal...',
-                t.status_doing_fine || 'Everything\'s fine, just waiting...',
-                t.status_still_here || 'Still here, still working...',
-                t.status_any_moment || 'Could be any moment now...',
-                t.status_propagation_slow || 'Propagation can take a while...',
-                t.status_grab_coffee || 'Good time for a coffee...',
-                t.status_not_stuck || 'Not stuck, just waiting...',
-                t.status_servers_thinking || 'The servers are thinking...',
-                t.status_almost_there || 'Almost there...',
-                t.status_stretch_legs || 'Meanwhile, have you stretched your legs?',
-                t.status_bits_rhythm || 'Bits travel at their own pace...',
-                t.status_take_a_breath || 'Take a breather, we\'re watching...',
-                t.status_internet_magic || 'The internet is doing its magic...',
-                t.status_watching_plants || 'Like watching a plant grow, but faster...',
-                t.status_relax || 'Relax, we\'re on it...',
-                t.status_coffee_good || 'A little coffee never hurt anyone...',
-                t.status_tech_needs_time || 'Technology needs its time too...',
-                t.status_breathe_deep || 'Breathe deep, almost there...',
-                t.status_closer_than_think || 'Closer than you think...',
-                t.status_not_easy || 'If it were easy, it wouldn\'t be fun...',
-                t.status_meditating || 'No, it didn\'t freeze. It\'s just meditating...',
-                t.status_internet_elves || 'The internet elves are hard at work...',
-                t.status_no_f5 || 'Don\'t hit F5, you\'ll make us dizzy...',
+                t.status_not_stuck || 'Not stuck, just waiting.',
+                t.status_tab_open || 'You can leave this tab open and come back later.',
+                t.status_grab_coffee || 'Good time for a coffee.',
+                t.status_tacos || 'You could technically go grab tacos and be back in time.',
+                t.status_who_waits || 'Good things come to those who encrypt.',
+                t.status_spoiler || 'Spoiler: it\'s going to work.',
                 t.status_stare_slower || 'Staring at the screen makes it slower. It\'s science.',
-                t.status_not_mining || 'We promise we\'re not mining bitcoin...',
-                t.status_reboot_patience || 'Have you tried turning your patience off and on again?',
-                t.status_dns_speed || 'Verifying at DNS speed... which isn\'t much...',
-                t.status_dns_fast_joke || 'If DNS were fast, you wouldn\'t need this message...',
-                t.status_convincing_servers || 'We\'re convincing the DNS servers...',
-                t.status_hamsters || 'Our hamsters are pedaling as fast as they can...',
-                t.status_plot_twist || 'Plot twist: DNS really does take this long...',
-                t.status_spoiler || 'Spoiler: it\'s going to work. Just give it time...',
-                t.status_not_a_bug || 'This is not a bug, it\'s a patience feature...',
-                t.status_dns_meaning || 'Fun fact: DNS stands for Domain Name System...',
-                t.status_reggaeton || 'Random fact: an SSL cert has more lines than a pop song...',
-                t.status_tacos || 'You could technically go grab lunch and come back...',
-                t.status_optimism || 'Nothing yet, but optimism is free...',
-                t.status_mindfulness || 'Think of this as a mindfulness exercise...',
-                t.status_waiting_room || 'We\'re in the internet\'s waiting room...',
-                t.status_no_tracking || 'DNS packets are on the way. No tracking number though...',
-                t.status_inhale_security || 'Breathe. Inhale security, exhale HTTP...',
-                t.status_good_things_take || 'Good things take time. Your cert will be great...',
-                t.status_billions || 'Did you know Let\'s Encrypt has issued billions of certificates?',
-                t.status_polite_cert || 'Your certificate is in line. It\'s polite and waits its turn...',
-                t.status_dns_rules || 'We\'d love to go faster, but DNS makes the rules...',
-                t.status_who_waits || 'Good things come to those who encrypt...',
-                t.status_like_chrome || 'Processing... like your computer when you open Chrome...',
-                t.status_all_night || 'We\'ve got all night. Well, 30 minutes...',
-                t.status_deliberate || 'It\'s not slow, it\'s... deliberate...',
-                t.status_thorough || 'Let\'s Encrypt is verifying. They\'re very thorough...',
-                t.status_https_1994 || 'Fun fact: HTTPS was invented by Netscape in 1994...',
-                t.status_each_second || 'Every second of waiting is another second of security...',
-                t.status_electrons || 'Electrons are circling the globe to verify your domain...',
-                t.status_faith || 'Nothing yet, but we haven\'t lost faith...',
-                t.status_future_you || 'Future you with HTTPS will thank you...',
+                t.status_polite_cert || 'Your certificate is waiting in line. Very polite.',
+                t.status_deliberate || 'It\'s not slow, it\'s thorough.',
+                t.status_faith || 'Nothing yet, but we haven\'t lost faith.',
+                t.status_future_you || 'Future you, with HTTPS, says thanks.',
+            ];
+
+            if (this.data.challenge_type !== 'dns') {
+                return [
+                    ...common,
+                    t.status_http_fetching || 'Let\'s Encrypt is fetching the file from your server.',
+                    t.status_http_vantage || 'Let\'s Encrypt checks your server from several places around the world.',
+                ];
+            }
+
+            return [
+                ...common,
+                t.status_dns_propagation || 'DNS can take a few minutes to update.',
+                t.status_dns_vantage || 'Let\'s Encrypt checks your DNS from several places around the world. They all have to agree.',
+                t.status_no_tracking || 'The TXT records are hopping from server to server. No tracking number.',
+                t.status_dns_rules || 'We\'d love to go faster, but DNS makes the rules.',
+                t.status_plot_twist || 'Plot twist: this is how long it normally takes.',
+                t.status_dns_1983 || 'DNS dates back to 1983. Sometimes it shows.',
             ];
         },
 
+        // Shown after 10 minutes: concrete things to check for the chosen challenge
         getDoubtPhrases() {
             const t = window.translations || {};
-            return [
-                t.status_doubt_check_dns || 'Are you sure you configured the DNS correctly?',
-                t.status_doubt_recheck || 'Maybe double-check, just in case?',
-                t.status_doubt_two_records || 'Hey... did you add both TXT records?',
-                t.status_doubt_spaces || 'Did you copy them right? Sometimes an extra space...',
-                t.status_doubt_panel || 'Might be worth checking your DNS panel...',
-                t.status_doubt_together || 'Still nothing... shall we check together?',
-                t.status_doubt_longer || 'Hmm, this is taking longer than usual...',
-                t.status_doubt_ttl || 'Could your DNS TTL be set too high?',
-                t.status_doubt_configured || 'No pressure, but... did you configure them yet?',
-                t.status_doubt_provider || 'Maybe your DNS provider fell asleep...',
-                t.status_doubt_glance || 'Just saying... a quick look at your DNS panel couldn\'t hurt...',
-                t.status_doubt_a_while || 'Not to nag, but it\'s been a while...',
-                t.status_doubt_correct_domain || 'Did you add the records to the right domain?',
-                t.status_doubt_trailing_space || 'Check for spaces at the start or end of the TXT value...',
-                t.status_doubt_slow_provider || 'Is your DNS provider one of the slow ones? Honest question...',
+
+            if (this.data.challenge_type !== 'dns') {
+                return [
+                    t.status_doubt_http_url || 'This is taking longer than usual. Open the file URL in your browser and check that it shows the content.',
+                    t.status_doubt_http_port || 'The file has to be reachable on port 80. Check that your firewall isn\'t blocking it.',
+                    t.status_doubt_http_extension || 'Check that no extension, like .txt, was added to the file name.',
+                    t.status_doubt_http_folder || 'Still nothing. Check that the file is inside .well-known/acme-challenge.',
+                ];
+            }
+
+            const phrases = [
+                t.status_doubt_dns_saved || 'This is taking longer than usual. Check that the TXT record is saved in your DNS panel.',
+                t.status_doubt_dns_name || 'Some panels append the domain on their own. If you entered the full name, try just _acme-challenge.',
+                t.status_doubt_dns_value || 'Check that the value has no extra spaces or quotes.',
+                t.status_doubt_dns_provider || 'If you use Cloudflare or another external DNS, the record goes there, not where you bought the domain.',
+                t.status_doubt_dns_recheck || 'Still nothing. Worth another look at your DNS panel.',
             ];
+            if (this.data.is_wildcard) {
+                phrases.push(t.status_doubt_dns_two_records || 'Remember: it\'s two TXT records with the same name.');
+            }
+            return phrases;
         },
 
         shuffleArray(arr) {
