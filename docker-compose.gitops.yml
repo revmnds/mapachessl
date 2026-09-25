@@ -9,7 +9,8 @@
 # Secrets are NOT stored here; set them as stack environment variables:
 #   APP_KEY      required  (php artisan key:generate --show)
 #   DB_PASSWORD  required
-#   Optional: APP_URL, QUEUE_WORKERS, ACME_MAX_QUEUE, LOG_LEVEL
+#   Optional: APP_URL, QUEUE_WORKERS, ACME_MAX_QUEUE, LOG_LEVEL,
+#             TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (operator alerts)
 #
 # Nothing is published on the host. Nginx Proxy Manager reaches the `web`
 # service through the external `npm` network as mapachessl-nginx:80; TLS is
@@ -44,6 +45,9 @@ x-app-env: &app-env
   ACME_STAGING: "false"
   QUEUE_WORKERS: ${QUEUE_WORKERS:-20}
   ACME_MAX_QUEUE: ${ACME_MAX_QUEUE:-50}
+
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
 
 x-app-build: &app-build
   build:

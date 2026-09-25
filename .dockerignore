@@ -1,6 +1,10 @@
 node_modules
 vendor
 .git
+# Just enough for notify:deploy to know the commit, no history
+!.git/HEAD
+!.git/refs/heads
+!.git/packed-refs
 .gitignore
 .env
 .env.backup

@@ -4,6 +4,8 @@ namespace App\Jobs;
 
 use App\Models\CertificateRequest;
 use App\Services\AcmeService;
+use App\Services\GenerationStats;
+use App\Services\TelegramNotifier;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -23,7 +25,7 @@ class GenerateCertificate implements ShouldQueue
         private string $attempt,
     ) {}
 
-    public function handle(AcmeService $acme): void
+    public function handle(AcmeService $acme, TelegramNotifier $telegram): void
     {
         $certRequest = CertificateRequest::find($this->certRequestId);
 
@@ -75,6 +77,10 @@ class GenerateCertificate implements ShouldQueue
         }
 
         if ($result['success']) {
+            // markAsCompleted clears them
+            $startedAt = $certRequest->generation_started_at;
+            $jobStartedAt = $certRequest->job_started_at;
+
             $certRequest->markAsCompleted(
                 $result['certificate'],
                 $result['private_key'],
@@ -83,6 +89,9 @@ class GenerateCertificate implements ShouldQueue
             );
 
             Log::info('GenerateCertificate job: certificate generated successfully');
+
+            GenerationStats::increment('completed');
+            $telegram->certificateIssued($certRequest, $startedAt, $jobStartedAt);
         } else {
             if ($result['error'] === '') {
                 Log::info('GenerateCertificate job: cancelled by user');
@@ -92,6 +101,12 @@ class GenerateCertificate implements ShouldQueue
             $certRequest->markAsFailed($result['error']);
 
             Log::error('GenerateCertificate job: generation failed', ['error' => $result['error']]);
+
+            $rawError = $result['raw_error'] ?? $result['error'];
+            $kind = $acme->failureKind($rawError);
+            GenerationStats::increment('failed');
+            GenerationStats::increment("failed_{$kind}");
+            $telegram->generationFailed($certRequest, $rawError, $kind);
         }
     }
 }

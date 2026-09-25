@@ -4,11 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Jobs\GenerateCertificate;
 use App\Models\CertificateRequest;
+use App\Services\GenerationStats;
+use App\Services\TelegramNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use ZipArchive;
+
+use function Illuminate\Support\defer;
 
 class WizardApiController extends Controller
 {
@@ -190,7 +194,7 @@ class WizardApiController extends Controller
         ]);
     }
 
-    public function generate(): JsonResponse
+    public function generate(TelegramNotifier $telegram): JsonResponse
     {
         $token = $this->getToken();
         if (!$token) {
@@ -234,7 +238,8 @@ class WizardApiController extends Controller
             // Counted as running + waiting against workers + line, so a burst of clicks while
             // workers are free (none picked up yet) isn't mistaken for a full line.
             $capacity = (int) config('services.acme.workers') + (int) config('services.acme.max_queue');
-            if (CertificateRequest::runningCount() + CertificateRequest::waitingInLine()->count() >= $capacity) {
+            $load = CertificateRequest::runningCount() + CertificateRequest::waitingInLine()->count();
+            if ($load >= $capacity) {
                 return 'busy';
             }
 
@@ -243,7 +248,7 @@ class WizardApiController extends Controller
             }
 
             $attempt = $certRequest->lockGeneration();
-            return [$certRequest, $attempt];
+            return [$certRequest, $attempt, $load + 1];
         });
 
         if ($result === null) {
@@ -262,14 +267,18 @@ class WizardApiController extends Controller
         }
 
         if ($result === 'busy') {
+            GenerationStats::increment('busy');
+            defer(fn () => $telegram->queueFull());
+
             return response()->json([
                 'success' => false,
                 'errors' => ['server' => __('messages.errors.server_busy')],
             ], 503);
         }
 
-        [$certRequest, $attempt] = $result;
+        [$certRequest, $attempt, $load] = $result;
 
+        GenerationStats::max('peak_load', $load);
         RateLimiter::hit($rateKey, 3600);
         GenerateCertificate::dispatch($certRequest->id, $attempt);
 

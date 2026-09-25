@@ -644,6 +644,23 @@ class AcmeService
             || stripos($error, 'No such authorization') !== false;
     }
 
+    public function isRateLimitError(string $error): bool
+    {
+        return stripos($error, 'rateLimited') !== false || stripos($error, 'too many') !== false;
+    }
+
+    /**
+     * Rough failure category for operator alerts and stats
+     */
+    public function failureKind(string $error): string
+    {
+        return match (true) {
+            $this->isRateLimitError($error) => 'rate_limit',
+            stripos($error, 'Timeout waiting') !== false => 'timeout',
+            default => 'other',
+        };
+    }
+
     /**
      * Translate ACME errors to user-friendly messages
      */
@@ -654,7 +671,7 @@ class AcmeService
             : __('messages.errors.hint_http');
 
         // Special handling for rate limit — extract retry date from ACME error
-        if (stripos($error, 'rateLimited') !== false || stripos($error, 'too many') !== false) {
+        if ($this->isRateLimitError($error)) {
             $retryAfter = null;
             if (preg_match('/retry after (\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})/i', $error, $matches)) {
                 try {

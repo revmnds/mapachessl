@@ -45,4 +45,12 @@ return [
         'max_queue' => (int) env('ACME_MAX_QUEUE', 50),
     ],
 
+    // Operator alerts; disabled while token or chat id are empty
+    'telegram' => [
+        'token' => env('TELEGRAM_BOT_TOKEN'),
+        'chat_id' => env('TELEGRAM_CHAT_ID'),
+        // Day boundaries and send time of the daily summary
+        'timezone' => env('TELEGRAM_TIMEZONE', 'America/Chicago'),
+    ],
+
 ];

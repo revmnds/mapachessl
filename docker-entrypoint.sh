@@ -30,6 +30,9 @@ if [ "$RUN_MIGRATIONS" = "true" ]; then
         echo "Database not ready, retrying in 2s ($i/15)..."
         sleep 2
     done
+
+    # Also once per stack: Telegram message with the version that just started
+    php /var/www/html/artisan notify:deploy || true
 fi
 
 # Clear and cache config
