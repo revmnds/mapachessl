@@ -23,7 +23,7 @@ class NotifyDeploy extends Command
         $revision = $this->revision();
 
         if (!$revision) {
-            $telegram->send("<b>App iniciada</b>\nVersión desconocida: la imagen no trae los refs de git.");
+            $telegram->send("<b>App iniciada</b>\nVersión desconocida: el build no pudo consultar el commit en GitHub.");
             return self::SUCCESS;
         }
 
@@ -49,19 +49,23 @@ class NotifyDeploy extends Command
     }
 
     /**
-     * Commit the image was built from. .dockerignore lets only HEAD and the refs into the image.
+     * Commit this code comes from: REVISION is written by the Docker build, a local checkout has .git
      */
     private function revision(): ?string
     {
-        $git = base_path('.git');
-        $head = trim((string) @file_get_contents("{$git}/HEAD"));
+        $head = trim((string) @file_get_contents(base_path('REVISION')));
 
-        if (str_starts_with($head, 'ref: ')) {
-            $ref = substr($head, 5);
-            $head = trim((string) @file_get_contents("{$git}/{$ref}"));
+        if ($head === '') {
+            $git = base_path('.git');
+            $head = trim((string) @file_get_contents("{$git}/HEAD"));
 
-            if ($head === '' && preg_match('/^([0-9a-f]{40}) ' . preg_quote($ref, '/') . '$/m', (string) @file_get_contents("{$git}/packed-refs"), $m)) {
-                $head = $m[1];
+            if (str_starts_with($head, 'ref: ')) {
+                $ref = substr($head, 5);
+                $head = trim((string) @file_get_contents("{$git}/{$ref}"));
+
+                if ($head === '' && preg_match('/^([0-9a-f]{40}) ' . preg_quote($ref, '/') . '$/m', (string) @file_get_contents("{$git}/packed-refs"), $m)) {
+                    $head = $m[1];
+                }
             }
         }
 

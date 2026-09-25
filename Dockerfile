@@ -48,6 +48,10 @@ RUN composer install --no-dev --optimize-autoloader --no-scripts
 # Copy application files
 COPY . .
 
+# Commit being deployed, for notify:deploy. Portainer deletes .git after cloning, so ask GitHub
+# where main points (off only if another push lands mid-build). Best effort.
+RUN git ls-remote https://github.com/revmnds/mapachessl.git refs/heads/main | cut -f1 > REVISION || true
+
 # Copy built assets from frontend stage
 COPY --from=frontend /app/public/build ./public/build
 
