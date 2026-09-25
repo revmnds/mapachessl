@@ -88,11 +88,22 @@
                                        x-model="data.domain"
                                        placeholder="{{ __('wizard.step1_placeholder') }}"
                                        autocomplete="off"
+                                       autocapitalize="off"
+                                       spellcheck="false"
+                                       @blur="normalizeDomain()"
+                                       @paste="$nextTick(() => normalizeDomain())"
                                        class="w-full border border-gray-200 rounded-lg px-4 py-3 text-gray-900
                                               placeholder-gray-400 focus:border-gray-900 focus:outline-none transition-colors"
                                        :class="errors.domain ? 'border-gray-500' : ''">
                                 <p x-show="errors.domain" x-text="errors.domain" class="text-gray-500 text-sm"></p>
                                 <p x-show="errors.server" x-text="errors.server" class="text-red-500 text-sm"></p>
+                                <p x-show="wwwSuggestion" x-cloak class="text-sm text-gray-500">
+                                    {{ __('wizard.step1_www_notice') }}
+                                    <button type="button" @click="applyWwwSuggestion()"
+                                            class="text-gray-900 underline underline-offset-2 hover:no-underline cursor-pointer">
+                                        {{ __('wizard.step1_www_use') }} <span x-text="wwwSuggestion"></span>
+                                    </button>
+                                </p>
                             </div>
                             {{-- Wildcard toggle --}}
                             <label class="flex items-center gap-3 cursor-pointer group">
@@ -103,9 +114,13 @@
                                 </div>
                                 <div class="flex-1">
                                     <span class="text-sm text-gray-700 group-hover:text-gray-900 transition-colors">{{ __('wizard.step1_wildcard_label') }}</span>
-                                    <span class="text-xs text-gray-400 block" x-show="data.is_wildcard" x-text="'*.' + (data.domain || '{{ __('wizard.step1_placeholder') }}') + ' {{ __('wizard.step1_wildcard_hint') }}'"></span>
+                                    <span class="text-xs text-gray-400 block" x-show="data.is_wildcard">{{ __('wizard.step1_wildcard_hint') }}</span>
                                 </div>
                             </label>
+                            <p x-show="coverage.length" x-cloak class="text-xs text-gray-400">
+                                {{ __('wizard.step1_covers') }}
+                                <span class="text-gray-600" x-text="coverage.join(' {{ __('wizard.step1_covers_and') }} ')"></span>
+                            </p>
                         </div>
                         <button type="submit"
                                 :disabled="loading"

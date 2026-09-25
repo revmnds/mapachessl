@@ -220,7 +220,37 @@ export function wizard() {
             };
         },
 
+        // Strips what people paste from the address bar: scheme, path, port, trailing dot, case
+        normalizeDomain() {
+            this.data.domain = (this.data.domain || '')
+                .trim()
+                .toLowerCase()
+                .replace(/^[a-z]+:\/\//, '')
+                .replace(/[/?#:].*$/, '')
+                .replace(/\.$/, '');
+        },
+
+        // A wildcard on www.example.com yields *.www.example.com, which is almost never what's wanted
+        get wwwSuggestion() {
+            const domain = (this.data.domain || '').trim().toLowerCase();
+            if (!this.data.is_wildcard || !domain.startsWith('www.')) return '';
+            const bare = domain.slice(4);
+            return bare.includes('.') ? bare : '';
+        },
+
+        get coverage() {
+            const domain = (this.data.domain || '').trim().toLowerCase();
+            if (!domain) return [];
+            return this.data.is_wildcard ? [domain, '*.' + domain] : [domain];
+        },
+
+        applyWwwSuggestion() {
+            this.data.domain = this.wwwSuggestion;
+            this.$refs.domainInput?.focus();
+        },
+
         async saveStep(stepNum) {
+            if (stepNum === 1) this.normalizeDomain();
             this.loading = true;
             this.errors = {};
 

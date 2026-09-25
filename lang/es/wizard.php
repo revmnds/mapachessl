@@ -29,7 +29,11 @@ return [
     'step1_subtitle' => 'El dominio para el certificado SSL',
     'step1_placeholder' => 'ejemplo.com',
     'step1_wildcard_label' => 'Incluir subdominios',
-    'step1_wildcard_hint' => '(requiere DNS)',
+    'step1_wildcard_hint' => 'Requiere verificación DNS',
+    'step1_www_notice' => 'El wildcard ya incluye www.',
+    'step1_www_use' => 'Usar',
+    'step1_covers' => 'Cubre:',
+    'step1_covers_and' => 'y',
 
     // Step 2: Email
 

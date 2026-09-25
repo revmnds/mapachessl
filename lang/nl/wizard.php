@@ -23,7 +23,11 @@ return [
     'step1_subtitle' => 'Het domein voor het SSL-certificaat',
     'step1_placeholder' => 'voorbeeld.nl',
     'step1_wildcard_label' => 'Subdomeinen opnemen',
-    'step1_wildcard_hint' => '(vereist DNS)',
+    'step1_wildcard_hint' => 'Vereist DNS-verificatie',
+    'step1_www_notice' => 'Wildcard dekt www al.',
+    'step1_www_use' => 'Gebruik',
+    'step1_covers' => 'Dekt:',
+    'step1_covers_and' => 'en',
 
     // Step 2: Email
 
