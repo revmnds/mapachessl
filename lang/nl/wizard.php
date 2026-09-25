@@ -110,6 +110,7 @@ return [
     'cert_tab_chain' => 'Keten',
     'cert_copy_btn' => 'Kopiëren',
     'cert_copied' => 'Gekopieerd!',
+    'donate_text' => 'Als het je geholpen heeft, was het de moeite waard. En wil je me op een koffie trakteren, dan kan dat ook.',
     'cert_warning_private_key' => 'Bewaar deze sleutel veilig. Deel hem niet.',
 
     // Step 5: Error

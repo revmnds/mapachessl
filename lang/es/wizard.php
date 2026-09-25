@@ -116,6 +116,7 @@ return [
     'cert_tab_chain' => 'Cadena',
     'cert_copy_btn' => 'Copiar',
     'cert_copied' => '¡Copiado!',
+    'donate_text' => 'Si te sirvió, ya valió la pena. Y si quieres invitar un café, también se vale.',
     'cert_warning_private_key' => 'Mantén esta llave segura. No la compartas.',
 
     // Step 5: Error

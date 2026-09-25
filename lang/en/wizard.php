@@ -110,6 +110,7 @@ return [
     'cert_tab_chain' => 'Chain',
     'cert_copy_btn' => 'Copy',
     'cert_copied' => 'Copied!',
+    'donate_text' => 'If it helped, it was worth it. And if you feel like buying me a coffee, that works too.',
     'cert_warning_private_key' => 'Keep this key secure. Do not share it.',
 
     // Step 5: Error
